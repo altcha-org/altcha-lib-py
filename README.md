@@ -33,16 +33,16 @@ python -m unittest discover tests
 Here’s a basic example of how to use the ALTCHA Python Library:
 
 ```python
-from altcha import create_challenge, verify_solution
+from altcha import ChallengeOptions, create_challenge, verify_solution
 
 def main():
     hmac_key = "secret hmac key"
 
     # Create a new challenge
-    options = {
-        "hmac_key": hmac_key,
-        "max_number": 100000,  # The maximum random number
-    }
+    options = ChallengeOptions(
+        max_number=100000, # The maximum random number
+        hmac_key=hmac_key,
+    )
     challenge = create_challenge(options)
     print("Challenge created:", challenge)
 
