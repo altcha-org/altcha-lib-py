@@ -193,7 +193,7 @@ class TestALTCHA(unittest.TestCase):
             challenge.challenge,
             challenge.salt,
             challenge.algorithm,
-            challenge.max_number,
+            challenge.maxnumber,
             0,
         )
 

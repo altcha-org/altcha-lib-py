@@ -67,7 +67,7 @@ class Challenge:
     def __init__(self, algorithm, challenge, max_number, salt, signature):
         self.algorithm = algorithm
         self.challenge = challenge
-        self.max_number = max_number
+        self.maxnumber = max_number
         self.salt = salt
         self.signature = signature
 
@@ -367,7 +367,7 @@ def verify_fields_hash(form_data, fields, fields_hash, algorithm):
         algorithm (str): Hashing algorithm to use (e.g., 'SHA-1', 'SHA-256', 'SHA-512').
 
     Returns:
-        tuple: A tuple (bool) where the first element is True if the hash matches.
+        bool: True if the computed hash matches the expected hash, False otherwise.
     """
     lines = [form_data.get(field, "") for field in fields]
     joined_data = "\n".join(lines)
@@ -449,8 +449,9 @@ def solve_challenge(challenge, salt, algorithm, max_number, start):
         start (int): Starting number to try.
 
     Returns:
-        tuple: A tuple (Solution or None) where the first element is a Solution object if the challenge
-               is solved.
+        Solution: A Solution object containing the number that solves the challenge and the time taken,
+                  if the challenge is solved.
+        None: If no solution is found within the range.
     """
     if not algorithm:
         algorithm = "SHA-256"
