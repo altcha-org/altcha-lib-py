@@ -323,7 +323,10 @@ def verify_solution(payload, hmac_key, check_expires):
         return False, None, "Invalid algorithm"
 
     expires = extract_params(payload).get("expires")
-    if check_expires and expires and int(expires) < time.time():
+    try:
+        if check_expires and expires and int(expires[0]) < time.time():
+            return False, None
+    except ValueError:  # Guard against malformed expires
         return False, None
 
     options = ChallengeOptions(
