@@ -1,8 +1,8 @@
 import hashlib
 import hmac
-import os
 import base64
 import json
+import secrets
 import time
 import urllib.parse
 
@@ -172,32 +172,6 @@ class Solution:
         self.took = took
 
 
-def random_bytes(length):
-    """
-    Generates a random byte string of the specified length.
-
-    Args:
-        length (int): Length of the byte string.
-
-    Returns:
-        bytes: Random byte string.
-    """
-    return os.urandom(length)
-
-
-def random_int(max_number):
-    """
-    Generates a random integer between 0 and max_number (inclusive).
-
-    Args:
-        max_number (int): Maximum value for the random integer.
-
-    Returns:
-        int: Random integer.
-    """
-    return int.from_bytes(os.urandom(8), "big") % (max_number + 1)
-
-
 def hash_hex(algorithm, data):
     """
     Computes the hexadecimal digest of the given data using the specified hashing algorithm.
@@ -271,9 +245,9 @@ def create_challenge(options):
 
     salt = (
         options.salt
-        or base64.b16encode(random_bytes(salt_length)).decode("utf-8").lower()
+        or base64.b16encode(secrets.token_bytes(salt_length)).decode("utf-8").lower()
     )
-    number = options.number or random_int(max_number)
+    number = options.number or secrets.randbelow(max_number)
 
     salt_params = {}
     if "?" in salt:
