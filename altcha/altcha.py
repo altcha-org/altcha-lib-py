@@ -324,7 +324,7 @@ def verify_solution(payload, hmac_key, check_expires):
 
     expires = extract_params(payload).get("expires")
     try:
-        if check_expires and expires and int(expires[0]) < time.time():
+        if check_expires and (not expires or int(expires[0]) < time.time()):
             return False, None
     except ValueError:  # Guard against malformed expires
         return False, None
