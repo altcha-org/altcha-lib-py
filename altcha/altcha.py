@@ -320,7 +320,7 @@ def verify_solution(payload, hmac_key, check_expires):
             return False, f"Missing required field: {field}"
 
     if payload["algorithm"] not in ["SHA-1", "SHA-256", "SHA-512"]:
-        return False, None, "Invalid algorithm"
+        return False, "Invalid algorithm"
 
     expires = extract_params(payload).get("expires")
     try:
