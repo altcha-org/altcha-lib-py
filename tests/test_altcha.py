@@ -19,7 +19,6 @@ from altcha.altcha import (
 
 
 class TestALTCHA(unittest.TestCase):
-
     def setUp(self):
         self.hmac_key = "test-key"
 
@@ -90,7 +89,8 @@ class TestALTCHA(unittest.TestCase):
             hmac_key=self.hmac_key,
             salt="somesalt",
             number=123,
-            expires=datetime.datetime.now().astimezone() + datetime.timedelta(minutes=1)
+            expires=datetime.datetime.now().astimezone()
+            + datetime.timedelta(minutes=1),
         )
         challenge = create_challenge(options)
         payload = Payload(
@@ -114,7 +114,8 @@ class TestALTCHA(unittest.TestCase):
             hmac_key=self.hmac_key,
             salt="somesalt",
             number=123,
-            expires=datetime.datetime.now().astimezone() - datetime.timedelta(minutes=1)
+            expires=datetime.datetime.now().astimezone()
+            - datetime.timedelta(minutes=1),
         )
         challenge = create_challenge(options)
         payload = Payload(
@@ -138,14 +139,15 @@ class TestALTCHA(unittest.TestCase):
             hmac_key=self.hmac_key,
             salt="somesalt",
             number=123,
-            expires=datetime.datetime.now().astimezone() + datetime.timedelta(minutes=1)
+            expires=datetime.datetime.now().astimezone()
+            + datetime.timedelta(minutes=1),
         )
         challenge = create_challenge(options)
         payload = Payload(
             algorithm="SHA-256",
             challenge=challenge.challenge,
             number=123,
-            salt='somesalt?expires=foobar',
+            salt="somesalt?expires=foobar",
             signature=challenge.signature,
         )
         payload_encoded = base64.b64encode(
@@ -237,7 +239,7 @@ class TestALTCHA(unittest.TestCase):
         )
         challenge = create_challenge(options)
 
-        solution, err = solve_challenge(
+        solution = solve_challenge(
             challenge.challenge,
             challenge.salt,
             challenge.algorithm,
@@ -245,7 +247,6 @@ class TestALTCHA(unittest.TestCase):
             start,
         )
 
-        self.assertIsNone(err, "Error occurred while solving the challenge")
         self.assertIsNotNone(solution, "Solution should not be None")
         self.assertEqual(
             challenge.challenge,
@@ -254,7 +255,7 @@ class TestALTCHA(unittest.TestCase):
             ),
         )
 
-    def test_solve_challenge(self):
+    def test_solve_challenge_solution(self):
         # Create a challenge
         options = ChallengeOptions(
             algorithm="SHA-256", number=100, hmac_key=self.hmac_key
