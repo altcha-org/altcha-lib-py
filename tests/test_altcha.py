@@ -19,7 +19,6 @@ from altcha.altcha import (
 
 
 class TestALTCHA(unittest.TestCase):
-
     def setUp(self):
         self.hmac_key = "test-key"
 
@@ -90,7 +89,8 @@ class TestALTCHA(unittest.TestCase):
             hmac_key=self.hmac_key,
             salt="somesalt",
             number=123,
-            expires=datetime.datetime.now().astimezone() + datetime.timedelta(minutes=1)
+            expires=datetime.datetime.now().astimezone()
+            + datetime.timedelta(minutes=1),
         )
         challenge = create_challenge(options)
         payload = Payload(
@@ -114,7 +114,8 @@ class TestALTCHA(unittest.TestCase):
             hmac_key=self.hmac_key,
             salt="somesalt",
             number=123,
-            expires=datetime.datetime.now().astimezone() - datetime.timedelta(minutes=1)
+            expires=datetime.datetime.now().astimezone()
+            - datetime.timedelta(minutes=1),
         )
         challenge = create_challenge(options)
         payload = Payload(
@@ -138,14 +139,15 @@ class TestALTCHA(unittest.TestCase):
             hmac_key=self.hmac_key,
             salt="somesalt",
             number=123,
-            expires=datetime.datetime.now().astimezone() + datetime.timedelta(minutes=1)
+            expires=datetime.datetime.now().astimezone()
+            + datetime.timedelta(minutes=1),
         )
         challenge = create_challenge(options)
         payload = Payload(
             algorithm="SHA-256",
             challenge=challenge.challenge,
             number=123,
-            salt='somesalt?expires=foobar',
+            salt="somesalt?expires=foobar",
             signature=challenge.signature,
         )
         payload_encoded = base64.b64encode(
