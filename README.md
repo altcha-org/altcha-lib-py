@@ -6,7 +6,7 @@ The ALTCHA Python Library is a lightweight, zero-dependency library designed for
 
 This library is compatible with:
 
-- Python 3.6+
+- Python 3.9+
 
 ## Example
 
@@ -125,7 +125,7 @@ Verifies the hash of form fields.
 - `fields_hash (str)`: The expected hash value.
 - `algorithm (str)`: Hashing algorithm (`'SHA-1'`, `'SHA-256'`, `'SHA-512'`).
 
-**Returns:** `(bool, str or None)`
+**Returns:** `bool`
 
 ### `verify_server_signature(payload, hmac_key)`
 
@@ -150,7 +150,7 @@ Finds a solution to the given challenge.
 - `max_number (int)`: Maximum number to iterate to.
 - `start (int)`: Starting number.
 
-**Returns:** `(Solution or None, str or None)`
+**Returns:** `Solution or None`
 
 ## License
 
