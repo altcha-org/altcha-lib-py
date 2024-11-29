@@ -100,7 +100,8 @@ Verifies an ALTCHA solution.
 
 - `payload (dict)`: The solution payload to verify.
 - `hmac_key (str)`: The HMAC key used for verification.
-- `check_expires (bool)`: Whether to check if the challenge has expired.
+- `check_expires (bool)`: Indicates whether to validate the challenge's expiration. If set to True, the function checks the expires field within the salt (if present) to ensure the challenge has not expired.
+(Note: To use this feature, the expires parameter must be included when creating the challenge.)
 
 **Returns:** `(bool, str or None)`
 
