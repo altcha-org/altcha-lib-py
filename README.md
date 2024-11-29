@@ -37,6 +37,7 @@ python -m unittest discover tests
 Here’s a basic example of how to use the ALTCHA Python Library:
 
 ```python
+import datetime
 from altcha import ChallengeOptions, create_challenge, verify_solution
 
 def main():
@@ -44,6 +45,7 @@ def main():
 
     # Create a new challenge
     options = ChallengeOptions(
+        expires=datetime.datetime.now() + datetime.timedelta(hours=1),
         max_number=100000, # The maximum random number
         hmac_key=hmac_key,
     )
