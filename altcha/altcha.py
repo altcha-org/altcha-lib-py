@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import hmac
 import base64
@@ -5,15 +7,30 @@ import json
 import secrets
 import time
 import urllib.parse
+from typing import Literal, TypedDict, cast
+import datetime
 
 # Define algorithms
-SHA1 = "SHA-1"
-SHA256 = "SHA-256"
-SHA512 = "SHA-512"
+SHA1: Literal["SHA-1"] = "SHA-1"
+SHA256: Literal["SHA-256"] = "SHA-256"
+SHA512: Literal["SHA-512"] = "SHA-512"
 
-DEFAULT_MAX_NUMBER = int(1e6)  # Default maximum number for challenge
-DEFAULT_SALT_LENGTH = 12  # Default length of salt in bytes
-DEFAULT_ALGORITHM = SHA256  # Default hashing algorithm
+AlgoType = Literal["SHA-1", "SHA-256", "SHA-512"]
+
+
+class PayloadType(TypedDict, total=False):
+    algorithm: AlgoType
+    challenge: str
+    number: int
+    salt: str
+    signature: str
+    verificationData: str
+    verified: bool
+
+
+DEFAULT_MAX_NUMBER: int = int(1e6)  # Default maximum number for challenge
+DEFAULT_SALT_LENGTH: int = 12  # Default length of salt in bytes
+DEFAULT_ALGORITHM: AlgoType = SHA256  # Default hashing algorithm
 
 
 class ChallengeOptions:
@@ -33,14 +50,14 @@ class ChallengeOptions:
 
     def __init__(
         self,
-        algorithm=DEFAULT_ALGORITHM,
-        max_number=DEFAULT_MAX_NUMBER,
-        salt_length=DEFAULT_SALT_LENGTH,
-        hmac_key="",
-        salt="",
-        number=0,
-        expires=None,
-        params=None,
+        algorithm: AlgoType = DEFAULT_ALGORITHM,
+        max_number: int = DEFAULT_MAX_NUMBER,
+        salt_length: int = DEFAULT_SALT_LENGTH,
+        hmac_key: str = "",
+        salt: str = "",
+        number: int = 0,
+        expires: datetime.datetime | None = None,
+        params: dict[str, str] | None = None,
     ):
         self.algorithm = algorithm
         self.max_number = max_number
@@ -64,7 +81,14 @@ class Challenge:
         signature (str): HMAC signature for the challenge.
     """
 
-    def __init__(self, algorithm, challenge, max_number, salt, signature):
+    def __init__(
+        self,
+        algorithm: AlgoType,
+        challenge: str,
+        max_number: int,
+        salt: str,
+        signature: str,
+    ):
         self.algorithm = algorithm
         self.challenge = challenge
         self.maxnumber = max_number
@@ -84,7 +108,14 @@ class Payload:
         signature (str): HMAC signature of the solution.
     """
 
-    def __init__(self, algorithm, challenge, number, salt, signature):
+    def __init__(
+        self,
+        algorithm: AlgoType,
+        challenge: str,
+        number: int,
+        salt: str,
+        signature: str,
+    ):
         self.algorithm = algorithm
         self.challenge = challenge
         self.number = number
@@ -103,7 +134,13 @@ class ServerSignaturePayload:
         verified (bool): Whether the signature was verified.
     """
 
-    def __init__(self, algorithm, verificationData, signature, verified):
+    def __init__(
+        self,
+        algorithm: AlgoType,
+        verificationData: str,
+        signature: str,
+        verified: bool,
+    ):
         self.algorithm = algorithm
         self.verificationData = verificationData
         self.signature = signature
@@ -131,18 +168,18 @@ class ServerSignatureVerificationData:
 
     def __init__(
         self,
-        classification="",
-        country="",
-        detected_language="",
-        email="",
-        expire=0,
-        fields=None,
-        fields_hash="",
-        ip_address="",
-        reasons=None,
-        score=0.0,
-        time=0,
-        verified=False,
+        classification: str = "",
+        country: str = "",
+        detected_language: str = "",
+        email: str = "",
+        expire: int = 0,
+        fields: list[str] | None = None,
+        fields_hash: str = "",
+        ip_address: str = "",
+        reasons: list[str] | None = None,
+        score: float = 0.0,
+        time: int = 0,
+        verified: bool = False,
     ):
         self.classification = classification
         self.country = country
@@ -167,12 +204,12 @@ class Solution:
         took (float): Time taken to solve the challenge, in seconds.
     """
 
-    def __init__(self, number, took):
+    def __init__(self, number: int, took: float):
         self.number = number
         self.took = took
 
 
-def hash_hex(algorithm, data):
+def hash_hex(algorithm: AlgoType, data: bytes) -> str:
     """
     Computes the hexadecimal digest of the given data using the specified hashing algorithm.
 
@@ -188,7 +225,7 @@ def hash_hex(algorithm, data):
     return hash_obj.hexdigest()
 
 
-def hash_algorithm(algorithm):
+def hash_algorithm(algorithm: AlgoType) -> hashlib._Hash:
     """
     Returns a hash object for the specified hashing algorithm.
 
@@ -211,7 +248,7 @@ def hash_algorithm(algorithm):
         raise ValueError(f"Unsupported algorithm: {algorithm}")
 
 
-def hmac_hex(algorithm, data, key):
+def hmac_hex(algorithm: AlgoType, data: bytes, key: str) -> str:
     """
     Computes the HMAC hexadecimal digest of the given data using the specified algorithm and key.
 
@@ -229,7 +266,7 @@ def hmac_hex(algorithm, data, key):
     return hmac_obj.hexdigest()
 
 
-def create_challenge(options):
+def create_challenge(options: ChallengeOptions) -> Challenge:
     """
     Creates a challenge based on the provided options.
 
@@ -269,7 +306,9 @@ def create_challenge(options):
     return Challenge(algorithm, challenge, max_number, salt, signature)
 
 
-def verify_solution(payload, hmac_key, check_expires):
+def verify_solution(
+    payload: str | PayloadType, hmac_key: str, check_expires: bool
+) -> tuple[bool, str | None]:
     """
     Verifies a challenge solution against the expected challenge.
 
@@ -284,7 +323,7 @@ def verify_solution(payload, hmac_key, check_expires):
     """
     if isinstance(payload, str):
         try:
-            payload = json.loads(base64.b64decode(payload).decode())
+            payload = cast(PayloadType, json.loads(base64.b64decode(payload).decode()))
         except (ValueError, TypeError):
             return False, "Invalid altcha payload"
 
@@ -317,7 +356,7 @@ def verify_solution(payload, hmac_key, check_expires):
     ), None
 
 
-def extract_params(payload):
+def extract_params(payload: PayloadType) -> dict[str, list[str]]:
     """
     Extracts query parameters from the salt string in the payload.
 
@@ -333,7 +372,9 @@ def extract_params(payload):
     return {}
 
 
-def verify_fields_hash(form_data, fields, fields_hash, algorithm):
+def verify_fields_hash(
+    form_data: dict[str, str], fields: list[str], fields_hash: str, algorithm: AlgoType
+) -> bool:
     """
     Verifies that the hash of specific form fields matches the expected hash.
 
@@ -352,7 +393,9 @@ def verify_fields_hash(form_data, fields, fields_hash, algorithm):
     return computed_hash == fields_hash
 
 
-def verify_server_signature(payload, hmac_key):
+def verify_server_signature(
+    payload: str | PayloadType, hmac_key: str
+) -> tuple[bool, ServerSignatureVerificationData | None, str | None]:
     """
     Verifies the server signature in the payload.
 
@@ -367,7 +410,7 @@ def verify_server_signature(payload, hmac_key):
     """
     if isinstance(payload, str):
         try:
-            payload = json.loads(base64.b64decode(payload).decode())
+            payload = cast(PayloadType, json.loads(base64.b64decode(payload).decode()))
         except (ValueError, TypeError):
             return False, None, "Invalid altcha payload"
     elif not isinstance(payload, dict):
@@ -414,7 +457,9 @@ def verify_server_signature(payload, hmac_key):
     return is_valid, data if is_valid else None, None
 
 
-def solve_challenge(challenge, salt, algorithm, max_number, start):
+def solve_challenge(
+    challenge: str, salt: str, algorithm: AlgoType, max_number: int, start: int
+) -> Solution | None:
     """
     Attempts to solve a challenge by finding a number that matches the challenge hash.
 
