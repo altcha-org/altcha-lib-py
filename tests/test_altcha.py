@@ -286,6 +286,35 @@ class TestALTCHA(unittest.TestCase):
         ).hexdigest()
         self.assertEqual(result, expected)
 
+    def test_verify_random(self):
+        for _i in range(1000):
+            secret = "xxxxxxxxxx"
+            challenge_options = ChallengeOptions(
+                hmac_key=secret,
+                max_number=100,
+            )
+            challenge = create_challenge(challenge_options)
+            solution = solve_challenge(
+                challenge=challenge.challenge,
+                salt=challenge.salt,
+                algorithm=challenge.algorithm,
+                max_number=challenge.maxnumber,
+                start=0,
+            )
+            response = base64.b64encode(
+                json.dumps(
+                    {
+                        "algorithm": challenge.algorithm,
+                        "challenge": challenge.challenge,
+                        "number": solution.number,
+                        "salt": challenge.salt,
+                        "signature": challenge.signature,
+                    }
+                ).encode("utf-8")
+            ).decode("utf-8")
+            result = verify_solution(response, secret, check_expires=False)
+            self.assertTrue(result[0])
+
 
 if __name__ == "__main__":
     unittest.main()
