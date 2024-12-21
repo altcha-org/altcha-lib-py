@@ -81,6 +81,54 @@ class TestALTCHA(unittest.TestCase):
         result, _ = verify_solution(payload_encoded, self.hmac_key, check_expires=False)
         self.assertFalse(result)
 
+    # Test for number=0
+    def test_verify_solution_zero(self):
+        options = ChallengeOptions(
+            algorithm="SHA-256",
+            max_number=10,
+            salt_length=16,
+            hmac_key=self.hmac_key,
+            salt="somesalt",
+            number=0,
+        )
+        challenge = create_challenge(options)
+        payload = Payload(
+            algorithm="SHA-256",
+            challenge=challenge.challenge,
+            number=0,
+            salt="somesalt",
+            signature=challenge.signature,
+        )
+        payload_encoded = base64.b64encode(
+            json.dumps(payload.__dict__).encode()
+        ).decode()
+        result, _ = verify_solution(payload_encoded, self.hmac_key, check_expires=False)
+        self.assertTrue(result)
+
+    # Test for number being inclusive with max_number
+    def test_verify_solution_max_number(self):
+        options = ChallengeOptions(
+            algorithm="SHA-256",
+            max_number=10,
+            salt_length=16,
+            hmac_key=self.hmac_key,
+            salt="somesalt",
+            number=10,
+        )
+        challenge = create_challenge(options)
+        payload = Payload(
+            algorithm="SHA-256",
+            challenge=challenge.challenge,
+            number=10,
+            salt="somesalt",
+            signature=challenge.signature,
+        )
+        payload_encoded = base64.b64encode(
+            json.dumps(payload.__dict__).encode()
+        ).decode()
+        result, _ = verify_solution(payload_encoded, self.hmac_key, check_expires=False)
+        self.assertTrue(result)
+
     def test_verify_solution_not_expired(self):
         options = ChallengeOptions(
             algorithm="SHA-256",
