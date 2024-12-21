@@ -284,7 +284,11 @@ def create_challenge(options: ChallengeOptions) -> Challenge:
         options.salt
         or base64.b16encode(secrets.token_bytes(salt_length)).decode("utf-8").lower()
     )
-    number = options.number if options.number is not None else secrets.randbelow(max_number + 1)
+    number = (
+        options.number
+        if options.number is not None
+        else secrets.randbelow(max_number + 1)
+    )
 
     salt_params = {}
     if "?" in salt:
