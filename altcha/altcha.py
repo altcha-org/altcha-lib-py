@@ -55,7 +55,7 @@ class ChallengeOptions:
         salt_length: int = DEFAULT_SALT_LENGTH,
         hmac_key: str = "",
         salt: str = "",
-        number: int = 0,
+        number: int | None = None,
         expires: datetime.datetime | None = None,
         params: dict[str, str] | None = None,
     ):
