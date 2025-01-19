@@ -342,9 +342,9 @@ def verify_solution(
     expires = extract_params(payload).get("expires")
     try:
         if check_expires and expires and int(expires[0]) < time.time():
-            return False, None
+            return False, "Altcha payload expired"
     except ValueError:  # Guard against malformed expires
-        return False, None
+        return False, "Altcha payload expired"
 
     options = ChallengeOptions(
         algorithm=payload["algorithm"],
