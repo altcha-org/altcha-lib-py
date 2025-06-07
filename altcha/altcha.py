@@ -352,19 +352,21 @@ def hmac_hex(algorithm: AlgoType, data: bytes, key: str) -> str:
 def create_challenge(options: ChallengeOptions) -> Challenge: ...
 @overload
 def create_challenge(
-    algorithm: AlgoType = DEFAULT_ALGORITHM,
-    max_number: int = DEFAULT_MAX_NUMBER,
-    salt_length: int = DEFAULT_SALT_LENGTH,
-    hmac_key: str = "",
-    salt: str = "",
-    number: int | None = None,
-    expires: datetime.datetime | None = None,
-    params: dict[str, str] | None = None,
+    *,
+    algorithm: AlgoType,
+    max_number: int,
+    salt_length: int,
+    hmac_key: str,
+    salt: str,
+    number: int | None,
+    expires: datetime.datetime | None,
+    params: dict[str, str] | None,
 ) -> Challenge: ...
 
 
 def create_challenge(
     options: ChallengeOptions | None = None,
+    *,
     algorithm: AlgoType = DEFAULT_ALGORITHM,
     max_number: int = DEFAULT_MAX_NUMBER,
     salt_length: int = DEFAULT_SALT_LENGTH,
@@ -588,7 +590,7 @@ def verify_server_signature(
     """
     payload_dict: PayloadType
     if isinstance(payload, ServerSignaturePayload):
-        payload_dict = payload.to_dict()
+        payload_dict = cast(PayloadType, payload.to_dict())
     elif isinstance(payload, str):
         try:
             payload_dict = cast(
@@ -658,7 +660,13 @@ def verify_server_signature(
 
 
 @overload
-def solve_challenge(challenge: Challenge, start: int = 0) -> Solution | None: ...
+def solve_challenge(
+    challenge: Challenge,
+    salt: str = "",
+    algorithm: AlgoType = "SHA-256",
+    max_number: int = 1000000,
+    start: int = 0,
+) -> Solution | None: ...
 @overload
 def solve_challenge(
     challenge: str,
@@ -671,21 +679,19 @@ def solve_challenge(
 
 def solve_challenge(
     challenge: Challenge | str,
-    salt: str | None = None,
-    algorithm: AlgoType | None = None,
-    max_number: int | None = None,
+    salt: str = "",
+    algorithm: AlgoType = "SHA-256",
+    max_number: int = 1000000,
     start: int = 0,
 ) -> Solution | None:
     """
     Attempts to solve a challenge by finding a number that matches the challenge hash.
-
     Args:
         challenge: Either a Challenge object or the challenge string.
         salt: Salt used in the challenge (only needed if challenge is a string).
         algorithm: Hashing algorithm (only needed if challenge is a string).
         max_number: Maximum number to try (only needed if challenge is a string).
         start: Starting number to try.
-
     Returns:
         Solution: If the challenge is solved.
         None: If no solution is found within the range.
@@ -696,19 +702,20 @@ def solve_challenge(
         max_number = challenge.max_number
         challenge_str = challenge.challenge
     else:
-        if salt is None or algorithm is None or max_number is None:
-            raise ValueError("Missing required parameters when challenge is a string")
+        if not salt:
+            raise ValueError(
+                "Missing required salt parameter when challenge is a string"
+            )
+        if not algorithm:
+            algorithm = "SHA-256"
+        if max_number <= 0:
+            max_number = 1000000
         challenge_str = challenge
 
-    if not algorithm:
-        algorithm = "SHA-256"
-    if max_number <= 0:
-        max_number = 1000000
     if start < 0:
         start = 0
 
     start_time = time.time()
-
     for n in range(start, max_number + 1):
         hash_hex_value = hash_hex(algorithm, (salt + str(n)).encode())
         if hash_hex_value == challenge_str:
