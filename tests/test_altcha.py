@@ -209,6 +209,7 @@ class TestALTCHA(unittest.TestCase):
         verification_data = (
             f"expire={expire_time}&fields=field1,field2&reasons=reason1,reason2"
             f"&score=3&time={int(time.time())}&verified=true"
+            f"&location.countryCode=US"
         )
         hash_obj = hash_algorithm("SHA-256")
         hash_obj.update(verification_data.encode())
@@ -232,6 +233,7 @@ class TestALTCHA(unittest.TestCase):
         self.assertGreater(int(data.score), 0)
         self.assertGreater(int(data.time), 0)
         self.assertTrue(data.verified)
+        self.assertEqual(getattr(data, "location.countryCode"), "US")
 
     def test_invalid_signature(self):
         expire_time = int(time.time()) + 600
@@ -315,7 +317,7 @@ class TestALTCHA(unittest.TestCase):
             challenge.challenge,
             challenge.salt,
             challenge.algorithm,
-            challenge.maxnumber,
+            challenge.max_number,
             0,
         )
 

@@ -7,7 +7,7 @@ import json
 import secrets
 import time
 import urllib.parse
-from typing import Literal, TypedDict, cast
+from typing import Literal, TypedDict, cast, overload
 import datetime
 
 # Define algorithms
@@ -91,9 +91,19 @@ class Challenge:
     ):
         self.algorithm = algorithm
         self.challenge = challenge
-        self.maxnumber = max_number
+        self.max_number = max_number
         self.salt = salt
         self.signature = signature
+
+    def to_dict(self) -> dict:
+        """Convert the Challenge to a dictionary."""
+        return {
+            "algorithm": self.algorithm,
+            "challenge": self.challenge,
+            "maxNumber": self.max_number,
+            "salt": self.salt,
+            "signature": self.signature,
+        }
 
 
 class Payload:
@@ -122,6 +132,20 @@ class Payload:
         self.salt = salt
         self.signature = signature
 
+    def to_dict(self) -> PayloadType:
+        """Convert the Payload to a dictionary."""
+        return {
+            "algorithm": self.algorithm,
+            "challenge": self.challenge,
+            "number": self.number,
+            "salt": self.salt,
+            "signature": self.signature,
+        }
+
+    def to_base64(self) -> str:
+        """Convert the Payload to a base64 encoded JSON string."""
+        return base64.b64encode(json.dumps(self.to_dict()).encode()).decode()
+
 
 class ServerSignaturePayload:
     """
@@ -129,6 +153,8 @@ class ServerSignaturePayload:
 
     Attributes:
         algorithm (str): Hashing algorithm used.
+        apiKey (str): API Key used for signature.
+        id (str): Unique signature id.
         verificationData (str): Data used for verification.
         signature (str): HMAC signature of the verification data.
         verified (bool): Whether the signature was verified.
@@ -137,33 +163,52 @@ class ServerSignaturePayload:
     def __init__(
         self,
         algorithm: AlgoType,
+        apiKey: str,
+        id: str,
         verificationData: str,
         signature: str,
         verified: bool,
     ):
         self.algorithm = algorithm
+        self.apiKey = apiKey
+        self.id = id
         self.verificationData = verificationData
         self.signature = signature
         self.verified = verified
 
+    def to_dict(self) -> dict:
+        """Convert the ServerSignaturePayload to a dictionary."""
+        return {
+            "algorithm": self.algorithm,
+            "apiKey": self.apiKey,
+            "id": self.id,
+            "verificationData": self.verificationData,
+            "signature": self.signature,
+            "verified": self.verified,
+        }
+
+    def to_base64(self) -> str:
+        """Convert the ServerSignaturePayload to a base64 encoded JSON string."""
+        return base64.b64encode(json.dumps(self.to_dict()).encode()).decode()
+
 
 class ServerSignatureVerificationData:
     """
-    Represents verification data for server signatures.
+    Represents verification data for server signatures with support for custom string:string attributes.
 
     Attributes:
-        classification (str): Classification of the data.
-        country (str): Country associated with the data.
-        detectedLanguage (str): Language detected from the data.
-        email (str): Email address associated with the data.
-        expire (int): Expiration time in seconds since epoch.
-        fields (list): List of fields included in the data.
-        fieldsHash (str): Hash of the fields.
-        ipAddress (str): IP address associated with the data.
-        reasons (list): Reasons associated with the data.
-        score (float): Score associated with the data.
-        time (int): Time associated with the data.
-        verified (bool): Whether the data was verified.
+        classification (str): The classification of the verification
+        country (str): [DEPRECATED] Use "location.countryCode" instead with Sentinel.
+        detectedLanguage (str): [DEPRECATED] Use "text.language" instead with Sentinel.
+        email (str): The associated email
+        expire (int): Expiration timestamp
+        fields (list[str]): List of fields
+        fieldsHash (str): Hash of the fields
+        ipAddress (str): The IP address
+        reasons (list[str]): List of reasons
+        score (float): Verification score
+        time (int): Timestamp
+        verified (bool): Verification status
     """
 
     def __init__(
@@ -180,6 +225,7 @@ class ServerSignatureVerificationData:
         score: float = 0.0,
         time: int = 0,
         verified: bool = False,
+        **custom: str,
     ):
         self.classification = classification
         self.country = country
@@ -193,6 +239,42 @@ class ServerSignatureVerificationData:
         self.score = score
         self.time = time
         self.verified = verified
+
+        # Store any extra custom attributes (must be str:str)
+        for key, value in custom.items():
+            if not isinstance(value, str):
+                raise TypeError(f"Custom attribute '{key}' must be of type str")
+            setattr(self, key, value)
+
+    def to_dict(self) -> dict:
+        """
+        Converts the ServerSignatureVerificationData object to a dictionary.
+
+        Returns:
+            A dictionary containing all the standard and custom attributes.
+        """
+        # Standard attributes
+        data = {
+            "classification": self.classification,
+            "country": self.country,
+            "detectedLanguage": self.detectedLanguage,
+            "email": self.email,
+            "expire": self.expire,
+            "fields": self.fields.copy(),
+            "fieldsHash": self.fieldsHash,
+            "ipAddress": self.ipAddress,
+            "reasons": self.reasons.copy(),
+            "score": self.score,
+            "time": self.time,
+            "verified": self.verified,
+        }
+
+        # Add custom attributes
+        for key, value in self.__dict__.items():
+            if key not in data and isinstance(value, str):
+                data[key] = value
+
+        return data
 
 
 class Solution:
@@ -266,16 +348,62 @@ def hmac_hex(algorithm: AlgoType, data: bytes, key: str) -> str:
     return hmac_obj.hexdigest()
 
 
-def create_challenge(options: ChallengeOptions) -> Challenge:
+@overload
+def create_challenge(options: ChallengeOptions) -> Challenge: ...
+@overload
+def create_challenge(
+    algorithm: AlgoType = DEFAULT_ALGORITHM,
+    max_number: int = DEFAULT_MAX_NUMBER,
+    salt_length: int = DEFAULT_SALT_LENGTH,
+    hmac_key: str = "",
+    salt: str = "",
+    number: int | None = None,
+    expires: datetime.datetime | None = None,
+    params: dict[str, str] | None = None,
+) -> Challenge: ...
+
+
+def create_challenge(
+    options: ChallengeOptions | None = None,
+    algorithm: AlgoType = DEFAULT_ALGORITHM,
+    max_number: int = DEFAULT_MAX_NUMBER,
+    salt_length: int = DEFAULT_SALT_LENGTH,
+    hmac_key: str = "",
+    salt: str = "",
+    number: int | None = None,
+    expires: datetime.datetime | None = None,
+    params: dict[str, str] | None = None,
+) -> Challenge:
     """
     Creates a challenge based on the provided options.
 
     Args:
         options (ChallengeOptions): Options for creating the challenge.
+        or individual parameters:
+        algorithm (str): Hashing algorithm to use.
+        max_number (int): Maximum number to use.
+        salt_length (int): Length of the salt in bytes.
+        hmac_key (str): HMAC key for generating the signature.
+        salt (str): Optional salt value.
+        number (int): Optional number for the challenge.
+        expires (datetime): Optional expiration time.
+        params (dict): Optional additional parameters.
 
     Returns:
         Challenge: The generated challenge.
     """
+    if options is None:
+        options = ChallengeOptions(
+            algorithm=algorithm,
+            max_number=max_number,
+            salt_length=salt_length,
+            hmac_key=hmac_key,
+            salt=salt,
+            number=number,
+            expires=expires,
+            params=params,
+        )
+
     algorithm = options.algorithm or DEFAULT_ALGORITHM
     max_number = options.max_number or DEFAULT_MAX_NUMBER
     salt_length = options.salt_length or DEFAULT_SALT_LENGTH
@@ -310,36 +438,64 @@ def create_challenge(options: ChallengeOptions) -> Challenge:
     return Challenge(algorithm, challenge, max_number, salt, signature)
 
 
+@overload
 def verify_solution(
-    payload: str | PayloadType, hmac_key: str, check_expires: bool
+    payload: Payload,
+    hmac_key: str,
+    check_expires: bool = True,
+) -> tuple[bool, str | None]: ...
+@overload
+def verify_solution(
+    payload: str,
+    hmac_key: str,
+    check_expires: bool = True,
+) -> tuple[bool, str | None]: ...
+@overload
+def verify_solution(
+    payload: PayloadType,
+    hmac_key: str,
+    check_expires: bool = True,
+) -> tuple[bool, str | None]: ...
+
+
+def verify_solution(
+    payload: str | Payload | PayloadType,
+    hmac_key: str,
+    check_expires: bool = True,
 ) -> tuple[bool, str | None]:
     """
     Verifies a challenge solution against the expected challenge.
 
     Args:
-        payload (str or dict): Payload containing the solution (base64 encoded JSON string or dictionary).
+        payload (str | Payload | PayloadType): The solution payload to verify.
         hmac_key (str): HMAC key for verifying the solution.
         check_expires (bool): Whether to check the expiration time.
 
     Returns:
-        tuple: A tuple (bool, str or None) where the first element is True if the solution is valid,
-               and the second element is an error message or None.
+        tuple: (bool: verification success, str | None: error message if any)
     """
-    if isinstance(payload, str):
+    payload_dict: PayloadType
+    if isinstance(payload, Payload):
+        payload_dict = payload.to_dict()
+    elif isinstance(payload, str):
         try:
-            payload = cast(PayloadType, json.loads(base64.b64decode(payload).decode()))
+            payload_dict = cast(
+                PayloadType, json.loads(base64.b64decode(payload).decode())
+            )
         except (ValueError, TypeError):
             return False, "Invalid altcha payload"
+    else:
+        payload_dict = payload
 
     required_fields = ["algorithm", "challenge", "number", "salt", "signature"]
     for field in required_fields:
-        if field not in payload:
+        if field not in payload_dict:
             return False, f"Missing required field: {field}"
 
-    if payload["algorithm"] not in ["SHA-1", "SHA-256", "SHA-512"]:
+    if payload_dict["algorithm"] not in ["SHA-1", "SHA-256", "SHA-512"]:
         return False, "Invalid algorithm"
 
-    expires = extract_params(payload).get("expires")
+    expires = extract_params(payload_dict).get("expires")
     try:
         if check_expires and expires and int(expires[0]) < time.time():
             return False, "Altcha payload expired"
@@ -347,16 +503,16 @@ def verify_solution(
         return False, "Altcha payload expired"
 
     options = ChallengeOptions(
-        algorithm=payload["algorithm"],
+        algorithm=payload_dict["algorithm"],
         hmac_key=hmac_key,
-        number=payload["number"],
-        salt=payload["salt"],
+        number=payload_dict["number"],
+        salt=payload_dict["salt"],
     )
     expected_challenge = create_challenge(options)
 
     return (
-        expected_challenge.challenge == payload["challenge"]
-        and expected_challenge.signature == payload["signature"]
+        expected_challenge.challenge == payload_dict["challenge"]
+        and expected_challenge.signature == payload_dict["signature"]
     ), None
 
 
@@ -397,38 +553,61 @@ def verify_fields_hash(
     return computed_hash == fields_hash
 
 
+@overload
 def verify_server_signature(
-    payload: str | PayloadType, hmac_key: str
+    payload: str,
+    hmac_key: str,
+) -> tuple[bool, ServerSignatureVerificationData | None, str | None]: ...
+@overload
+def verify_server_signature(
+    payload: ServerSignaturePayload,
+    hmac_key: str,
+) -> tuple[bool, ServerSignatureVerificationData | None, str | None]: ...
+@overload
+def verify_server_signature(
+    payload: PayloadType,
+    hmac_key: str,
+) -> tuple[bool, ServerSignatureVerificationData | None, str | None]: ...
+
+
+def verify_server_signature(
+    payload: str | ServerSignaturePayload | PayloadType,
+    hmac_key: str,
 ) -> tuple[bool, ServerSignatureVerificationData | None, str | None]:
     """
     Verifies the server signature in the payload.
 
     Args:
-        payload (str or dict): Payload containing the server signature (base64 encoded JSON string or dictionary).
-        hmac_key (str): HMAC key for verifying the signature.
+        payload: The payload containing the server signature.
+        hmac_key: HMAC key for verifying the signature.
 
     Returns:
-        tuple: A tuple (bool, ServerSignatureVerificationData or None, str or None) where the first element is True if the
-               signature is valid, the second element is an instance of ServerSignatureVerificationData containing the
-               verification data, and the third element is an error message or None.
+        tuple: (bool: verification success,
+                ServerSignatureVerificationData | None: verification data if successful,
+                str | None: error message if any)
     """
-    if isinstance(payload, str):
+    payload_dict: PayloadType
+    if isinstance(payload, ServerSignaturePayload):
+        payload_dict = payload.to_dict()
+    elif isinstance(payload, str):
         try:
-            payload = cast(PayloadType, json.loads(base64.b64decode(payload).decode()))
+            payload_dict = cast(
+                PayloadType, json.loads(base64.b64decode(payload).decode())
+            )
         except (ValueError, TypeError):
             return False, None, "Invalid altcha payload"
-    elif not isinstance(payload, dict):
-        return False, None, "Invalid altcha payload"
+    else:
+        payload_dict = payload
 
     required_fields = ["algorithm", "verificationData", "signature", "verified"]
     for field in required_fields:
-        if field not in payload:
+        if field not in payload_dict:
             return False, None, "Invalid altcha payload"
 
-    algorithm = payload["algorithm"]
-    verification_data = payload["verificationData"]
-    signature = payload["signature"]
-    verified = payload["verified"]
+    algorithm = payload_dict["algorithm"]
+    verification_data = payload_dict["verificationData"]
+    signature = payload_dict["signature"]
+    verified = payload_dict["verified"]
 
     if algorithm not in ["SHA-1", "SHA-256", "SHA-512"]:
         return False, None, "Invalid algorithm"
@@ -443,6 +622,19 @@ def verify_server_signature(
         return False, None, "Altcha payload expired"
 
     is_valid = (signature == expected_signature) and verified
+    known_keys = {
+        "classification",
+        "country",
+        "detectedLanguage",
+        "email",
+        "expire",
+        "fields",
+        "fieldsHash",
+        "reasons",
+        "score",
+        "time",
+        "verified",
+    }
 
     data = ServerSignatureVerificationData(
         classification=params.get("classification", [""])[0],
@@ -458,27 +650,56 @@ def verify_server_signature(
         verified=verified,
     )
 
+    for key, value in params.items():
+        if key not in known_keys:
+            setattr(data, key, value[0])
+
     return is_valid, data if is_valid else None, None
 
 
+@overload
+def solve_challenge(challenge: Challenge, start: int = 0) -> Solution | None: ...
+@overload
 def solve_challenge(
-    challenge: str, salt: str, algorithm: AlgoType, max_number: int, start: int
+    challenge: str,
+    salt: str,
+    algorithm: AlgoType,
+    max_number: int,
+    start: int = 0,
+) -> Solution | None: ...
+
+
+def solve_challenge(
+    challenge: Challenge | str,
+    salt: str | None = None,
+    algorithm: AlgoType | None = None,
+    max_number: int | None = None,
+    start: int = 0,
 ) -> Solution | None:
     """
     Attempts to solve a challenge by finding a number that matches the challenge hash.
 
     Args:
-        challenge (str): Challenge hash to match.
-        salt (str): Salt used in the challenge.
-        algorithm (str): Hashing algorithm to use (e.g., 'SHA-1', 'SHA-256', 'SHA-512').
-        max_number (int): Maximum number to try.
-        start (int): Starting number to try.
+        challenge: Either a Challenge object or the challenge string.
+        salt: Salt used in the challenge (only needed if challenge is a string).
+        algorithm: Hashing algorithm (only needed if challenge is a string).
+        max_number: Maximum number to try (only needed if challenge is a string).
+        start: Starting number to try.
 
     Returns:
-        Solution: A Solution object containing the number that solves the challenge and the time taken,
-                  if the challenge is solved.
+        Solution: If the challenge is solved.
         None: If no solution is found within the range.
     """
+    if isinstance(challenge, Challenge):
+        salt = challenge.salt
+        algorithm = challenge.algorithm
+        max_number = challenge.max_number
+        challenge_str = challenge.challenge
+    else:
+        if salt is None or algorithm is None or max_number is None:
+            raise ValueError("Missing required parameters when challenge is a string")
+        challenge_str = challenge
+
     if not algorithm:
         algorithm = "SHA-256"
     if max_number <= 0:
@@ -490,7 +711,7 @@ def solve_challenge(
 
     for n in range(start, max_number + 1):
         hash_hex_value = hash_hex(algorithm, (salt + str(n)).encode())
-        if hash_hex_value == challenge:
+        if hash_hex_value == challenge_str:
             took = time.time() - start_time
             return Solution(n, took)
 
