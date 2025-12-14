@@ -444,6 +444,10 @@ def create_challenge(
     if salt_params:
         salt += "?" + urllib.parse.urlencode(salt_params)
 
+    # Add a delimiter to prevent parameter splicing
+    if not salt.endswith("&"):
+        salt += "&"
+
     challenge = hash_hex(algorithm, (salt + str(number)).encode())
     signature = hmac_hex(algorithm, challenge.encode(), options.hmac_key)
 

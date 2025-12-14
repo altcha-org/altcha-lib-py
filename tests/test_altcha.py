@@ -228,6 +228,30 @@ class TestALTCHA(unittest.TestCase):
         result, _ = verify_solution(payload_encoded, self.hmac_key, check_expires=True)
         self.assertFalse(result)
 
+    def test_verify_solution_salt_splicing(self):
+        options = ChallengeOptions(
+            algorithm="SHA-256",
+            max_number=1000,
+            salt_length=16,
+            hmac_key=self.hmac_key,
+            expires=datetime.datetime.now().astimezone()
+            + datetime.timedelta(minutes=1),
+            number=123,
+        )
+        challenge = create_challenge(options)
+        payload = Payload(
+            algorithm="SHA-256",
+            challenge=challenge.challenge,
+            number=23,
+            salt=challenge.salt + "1",
+            signature=challenge.signature,
+        )
+        payload_encoded = base64.b64encode(
+            json.dumps(payload.__dict__).encode()
+        ).decode()
+        result, _ = verify_solution(payload_encoded, self.hmac_key, check_expires=False)
+        self.assertFalse(result)
+
     def test_valid_signature(self):
         expire_time = int(time.time()) + 600  # 10 minutes from now
         verification_data = (
