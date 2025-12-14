@@ -129,6 +129,30 @@ class TestALTCHA(unittest.TestCase):
         result, _ = verify_solution(payload_encoded, self.hmac_key, check_expires=False)
         self.assertTrue(result)
 
+    def test_verify_solution_expires_utc(self):
+        options = ChallengeOptions(
+            algorithm="SHA-256",
+            max_number=1000,
+            salt_length=16,
+            hmac_key=self.hmac_key,
+            salt="somesalt",
+            number=123,
+            expires=datetime.datetime.now(datetime.timezone.utc),
+        )
+        challenge = create_challenge(options)
+        payload = Payload(
+            algorithm="SHA-256",
+            challenge=challenge.challenge,
+            number=123,
+            salt=challenge.salt,
+            signature=challenge.signature,
+        )
+        payload_encoded = base64.b64encode(
+            json.dumps(payload.__dict__).encode()
+        ).decode()
+        result, _ = verify_solution(payload_encoded, self.hmac_key, check_expires=True)
+        self.assertFalse(result)
+
     def test_verify_solution_not_expired(self):
         options = ChallengeOptions(
             algorithm="SHA-256",

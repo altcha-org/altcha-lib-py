@@ -9,6 +9,7 @@ import time
 import urllib.parse
 from typing import Literal, TypedDict, cast, overload
 import datetime
+from datetime import timezone
 
 # Define algorithms
 SHA1: Literal["SHA-1"] = "SHA-1"
@@ -426,7 +427,16 @@ def create_challenge(
         salt_params = dict(urllib.parse.parse_qsl(salt_query))
 
     if options.expires:
-        salt_params["expires"] = str(int(time.mktime(options.expires.timetuple())))
+        expires = options.expires
+
+        if expires.tzinfo is None:
+            # Backward compatibility: assume naive datetimes are local time
+            timestamp = int(time.mktime(expires.timetuple()))
+        else:
+            # Aware datetimes: use true UTC timestamp
+            timestamp = int(expires.timestamp())
+
+        salt_params["expires"] = str(timestamp)
 
     if options.params:
         salt_params.update(options.params)
@@ -723,3 +733,14 @@ def solve_challenge(
             return Solution(n, took)
 
     return None
+
+def _normalize_expires(expires: datetime.datetime | None) -> datetime.datetime | None:
+    if expires is None:
+        return None
+
+    # Case 1: naive datetime → assume UTC (backward compatibility)
+    if expires.tzinfo is None:
+        return expires.replace(tzinfo=timezone.utc)
+
+    # Case 2: aware datetime (any timezone) → convert to UTC
+    return expires.astimezone(timezone.utc)
