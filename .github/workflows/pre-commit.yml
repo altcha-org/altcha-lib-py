@@ -1,0 +1,27 @@
+name: pre-commit check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+    - uses: astral-sh/setup-uv@v4
+    - name: pre-commit
+      run: uvx pre-commit run --all
+      env:
+        RUFF_OUTPUT_FORMAT: github
+    - name: show diff
+      run: git diff
+      if: always()
