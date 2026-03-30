@@ -46,7 +46,6 @@ PoW v2 replaces the simple hash-matching approach of v1 with a key derivation fu
 ### Quick start
 
 ```python
-import random
 from altcha import (
     create_challenge,
     solve_challenge,
@@ -60,7 +59,6 @@ HMAC_SECRET = "secret hmac key"
 challenge = create_challenge(
     algorithm="PBKDF2/SHA-256",
     cost=5_000,
-    counter=random.randint(5_000, 10_000),
     hmac_secret=HMAC_SECRET,
 )
 
