@@ -144,6 +144,18 @@ class TestCreateChallenge(unittest.TestCase):
         assert ch.signature is not None
         self.assertGreater(len(ch.signature), 0)
 
+    def test_bytes_hmac_secret(self):
+        # Non-UTF-8 binary key must be accepted (issue #20)
+        key = bytes(range(256))
+        ch = create_challenge("SHA-256", cost=1, counter=5, hmac_secret=key)
+        assert ch.signature is not None
+        sol = solve_challenge(ch)
+        assert sol is not None
+        payload = Payload(ch, sol).to_base64()
+        result = verify_solution(payload, key)
+        self.assertTrue(result.verified)
+        self.assertFalse(result.invalid_signature)
+
     def test_deterministic_counter(self):
         ch = create_challenge("SHA-256", cost=1, counter=42, hmac_secret=HMAC_KEY)
         # key_prefix should be the first 16 bytes (key_length//2) of the derived key

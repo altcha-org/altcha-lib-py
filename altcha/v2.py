@@ -265,12 +265,14 @@ def _canonical_json(obj: dict) -> str:
     return json.dumps(_sort_keys(obj), separators=(",", ":"), ensure_ascii=False)
 
 
-def _hmac_v2(algorithm: str, data: str | bytes, key: str) -> bytes:
+def _hmac_v2(algorithm: str, data: str | bytes, key: str | bytes) -> bytes:
     """Compute HMAC and return raw bytes."""
     if isinstance(data, str):
         data = data.encode()
+    if isinstance(key, str):
+        key = key.encode()
     hash_name = algorithm.lower().replace("-", "")  # 'sha256', 'sha384', 'sha512'
-    return _hmac_module.new(key.encode(), data, getattr(hashlib, hash_name)).digest()
+    return _hmac_module.new(key, data, getattr(hashlib, hash_name)).digest()
 
 
 def _constant_time_equal(a: str, b: str) -> bool:
@@ -281,8 +283,8 @@ def _sign_challenge_v2(
     hmac_algorithm: str,
     parameters: ChallengeParameters,
     derived_key: bytes | None,
-    hmac_secret: str,
-    hmac_key_secret: str | None = None,
+    hmac_secret: str | bytes,
+    hmac_key_secret: str | bytes | None = None,
 ) -> Challenge:
     """Sign challenge parameters with HMAC, optionally also signing the derived key."""
     if derived_key is not None and hmac_key_secret is not None:
@@ -420,8 +422,8 @@ def create_challenge(
     parallelism: int | None = None,
     expires_at: int | datetime.datetime | None = None,
     data: dict | None = None,
-    hmac_secret: str | None = None,
-    hmac_key_secret: str | None = None,
+    hmac_secret: str | bytes | None = None,
+    hmac_key_secret: str | bytes | None = None,
     hmac_algorithm: HmacAlgorithmV2 = DEFAULT_HMAC_ALGORITHM,
 ) -> Challenge:
     """
@@ -556,10 +558,10 @@ def solve_challenge(
 
 def verify_solution(
     payload: str | Payload,
-    hmac_secret: str,
+    hmac_secret: str | bytes,
     derive_key: DeriveKeyFunctionV2 | None = None,
     *,
-    hmac_key_secret: str | None = None,
+    hmac_key_secret: str | bytes | None = None,
     hmac_algorithm: HmacAlgorithmV2 = DEFAULT_HMAC_ALGORITHM,
 ) -> VerifySolutionResult:
     """
@@ -794,7 +796,7 @@ def parse_verification_data(
 
 def verify_server_signature(
     payload: str | ServerSignaturePayload,
-    hmac_secret: str,
+    hmac_secret: str | bytes,
     *,
     hmac_algorithm: HmacAlgorithmV2 = DEFAULT_HMAC_ALGORITHM,
 ) -> VerifyServerSignatureResult:

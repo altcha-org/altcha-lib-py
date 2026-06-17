@@ -53,7 +53,7 @@ class ChallengeOptions:
         algorithm: AlgoType = DEFAULT_ALGORITHM,
         max_number: int = DEFAULT_MAX_NUMBER,
         salt_length: int = DEFAULT_SALT_LENGTH,
-        hmac_key: str = "",
+        hmac_key: str | bytes = "",
         salt: str = "",
         number: int | None = None,
         expires: datetime.datetime | None = None,
@@ -333,7 +333,7 @@ def hash_algorithm(algorithm: AlgoType) -> hashlib._Hash:
         raise ValueError(f"Unsupported algorithm: {algorithm}")
 
 
-def hmac_hex(algorithm: AlgoType, data: bytes, key: str) -> str:
+def hmac_hex(algorithm: AlgoType, data: bytes, key: str | bytes) -> str:
     """
     Computes the HMAC hexadecimal digest of the given data using the specified algorithm and key.
 
@@ -345,9 +345,9 @@ def hmac_hex(algorithm: AlgoType, data: bytes, key: str) -> str:
     Returns:
         str: Hexadecimal HMAC digest of the data.
     """
-    hmac_obj = hmac.new(
-        key.encode(), data, getattr(hashlib, algorithm.replace("-", "").lower())
-    )
+    if isinstance(key, str):
+        key = key.encode()
+    hmac_obj = hmac.new(key, data, getattr(hashlib, algorithm.replace("-", "").lower()))
     return hmac_obj.hexdigest()
 
 
@@ -359,7 +359,7 @@ def create_challenge(
     algorithm: AlgoType,
     max_number: int,
     salt_length: int,
-    hmac_key: str,
+    hmac_key: str | bytes,
     salt: str,
     number: int | None,
     expires: datetime.datetime | None,
@@ -373,7 +373,7 @@ def create_challenge(
     algorithm: AlgoType = DEFAULT_ALGORITHM,
     max_number: int = DEFAULT_MAX_NUMBER,
     salt_length: int = DEFAULT_SALT_LENGTH,
-    hmac_key: str = "",
+    hmac_key: str | bytes = "",
     salt: str = "",
     number: int | None = None,
     expires: datetime.datetime | None = None,
@@ -459,26 +459,26 @@ def create_challenge(
 @overload
 def verify_solution(
     payload: Payload,
-    hmac_key: str,
+    hmac_key: str | bytes,
     check_expires: bool = True,
 ) -> tuple[bool, str | None]: ...
 @overload
 def verify_solution(
     payload: str,
-    hmac_key: str,
+    hmac_key: str | bytes,
     check_expires: bool = True,
 ) -> tuple[bool, str | None]: ...
 @overload
 def verify_solution(
     payload: PayloadType,
-    hmac_key: str,
+    hmac_key: str | bytes,
     check_expires: bool = True,
 ) -> tuple[bool, str | None]: ...
 
 
 def verify_solution(
     payload: str | Payload | PayloadType,
-    hmac_key: str,
+    hmac_key: str | bytes,
     check_expires: bool = True,
 ) -> tuple[bool, str | None]:
     """
@@ -577,23 +577,23 @@ def verify_fields_hash(
 @overload
 def verify_server_signature(
     payload: str,
-    hmac_key: str,
+    hmac_key: str | bytes,
 ) -> tuple[bool, ServerSignatureVerificationData | None, str | None]: ...
 @overload
 def verify_server_signature(
     payload: ServerSignaturePayload,
-    hmac_key: str,
+    hmac_key: str | bytes,
 ) -> tuple[bool, ServerSignatureVerificationData | None, str | None]: ...
 @overload
 def verify_server_signature(
     payload: PayloadType,
-    hmac_key: str,
+    hmac_key: str | bytes,
 ) -> tuple[bool, ServerSignatureVerificationData | None, str | None]: ...
 
 
 def verify_server_signature(
     payload: str | ServerSignaturePayload | PayloadType,
-    hmac_key: str,
+    hmac_key: str | bytes,
 ) -> tuple[bool, ServerSignatureVerificationData | None, str | None]:
     """
     Verifies the server signature in the payload.
