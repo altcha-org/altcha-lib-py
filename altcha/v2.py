@@ -197,12 +197,15 @@ class Payload:
         return base64.b64encode(json.dumps(self.to_dict()).encode()).decode()
 
     @classmethod
-    def from_base64(cls, data: str) -> Payload:
-        d = json.loads(base64.b64decode(data).decode())
+    def from_dict(cls, d: dict) -> Payload:
         return cls(
             challenge=Challenge.from_dict(d["challenge"]),
             solution=Solution.from_dict(d["solution"]),
         )
+
+    @classmethod
+    def from_base64(cls, data: str) -> Payload:
+        return cls.from_dict(json.loads(base64.b64decode(data).decode()))
 
 
 class VerifySolutionResult:

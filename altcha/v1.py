@@ -18,12 +18,15 @@ SHA512: Literal["SHA-512"] = "SHA-512"
 AlgoType = Literal["SHA-1", "SHA-256", "SHA-512"]
 
 
-class PayloadType(TypedDict, total=False):
+class _PayloadTypeRequired(TypedDict):
     algorithm: AlgoType
     challenge: str
     number: int
     salt: str
     signature: str
+
+
+class PayloadType(_PayloadTypeRequired, total=False):
     verificationData: str
     verified: bool
 
@@ -148,6 +151,41 @@ class Payload:
     def to_base64(self) -> str:
         """Convert the Payload to a base64 encoded JSON string."""
         return base64.b64encode(json.dumps(self.to_dict()).encode()).decode()
+
+    @classmethod
+    def from_dict(cls, data: PayloadType) -> "Payload":
+        """Create a Payload from a dictionary."""
+        return cls(
+            algorithm=cast(AlgoType, data["algorithm"]),
+            challenge=data["challenge"],
+            number=data["number"],
+            salt=data["salt"],
+            signature=data["signature"],
+        )
+
+    @classmethod
+    def from_base64(cls, encoded: str) -> "Payload":
+        """Create a Payload from a base64 encoded JSON string."""
+        data = cast(PayloadType, json.loads(base64.b64decode(encoded).decode()))
+        return cls.from_dict(data)
+
+    def parse_salt(self) -> tuple[str, float | None, dict[str, list[str]]]:
+        """Parse the salt into (hex_nonce, expires_timestamp, params).
+
+        Returns:
+            tuple: (hex_nonce, expires or None, dict of query params from salt)
+        """
+        parts = self.salt.split("?", 1)
+        hex_nonce = parts[0]
+        params = urllib.parse.parse_qs(parts[1]) if len(parts) > 1 else {}
+        expires_list = params.get("expires")
+        expires: float | None = None
+        if expires_list:
+            try:
+                expires = float(expires_list[0])
+            except ValueError:
+                pass
+        return hex_nonce, expires, params
 
 
 class ServerSignaturePayload:
