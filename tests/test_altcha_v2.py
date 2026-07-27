@@ -1,6 +1,8 @@
 import datetime
+import json
 import struct
 import unittest
+import unittest.mock
 
 from altcha.v2 import (
     ChallengeParameters,
@@ -16,6 +18,7 @@ from altcha.v2 import (
     derive_key_sha,
     parse_verification_data,
     solve_challenge,
+    verify_server,
     verify_server_signature,
     verify_solution,
 )
@@ -462,6 +465,149 @@ class TestVerifyServerSignature(unittest.TestCase):
         result = verify_server_signature("not-valid!!!", HMAC_KEY)
         self.assertFalse(result.verified)
         self.assertTrue(result.invalid_signature)
+
+
+class TestVerifyServer(unittest.TestCase):
+    URL = "https://sentinel.example.com/v1/verify/signature"
+
+    def setUp(self):
+        self._sleep_calls: list[float] = []
+        self._sleep_patcher = unittest.mock.patch(
+            "altcha.v2.time.sleep", side_effect=self._sleep_calls.append
+        )
+        self._sleep_patcher.start()
+        self.addCleanup(self._sleep_patcher.stop)
+
+    def test_success(self):
+        result_data = {
+            "apiKey": "key_1",
+            "verificationData": {"verified": True},
+            "verified": True,
+        }
+        calls = []
+
+        def post(url, data, headers, timeout):
+            calls.append((url, data, headers, timeout))
+            return 200, json.dumps(result_data).encode()
+
+        result = verify_server("payload", self.URL, http_post=post)
+        self.assertTrue(result.verified)
+        self.assertEqual(result.api_key, "key_1")
+        self.assertEqual(result.verification_data, {"verified": True})
+        self.assertIsNone(result.reason)
+        self.assertEqual(len(calls), 1)
+
+    def test_secret_included_in_body(self):
+        calls = []
+
+        def post(url, data, headers, timeout):
+            calls.append(data)
+            return 200, json.dumps({"verified": True}).encode()
+
+        verify_server("payload", self.URL, secret="sec_123", http_post=post)
+        self.assertEqual(
+            json.loads(calls[0]), {"payload": "payload", "secret": "sec_123"}
+        )
+
+    def test_secret_omitted_when_not_given(self):
+        calls = []
+
+        def post(url, data, headers, timeout):
+            calls.append(data)
+            return 200, json.dumps({"verified": True}).encode()
+
+        verify_server("payload", self.URL, http_post=post)
+        self.assertEqual(json.loads(calls[0]), {"payload": "payload"})
+
+    def test_400_is_terminal_not_retried(self):
+        calls = []
+
+        def post(url, data, headers, timeout):
+            calls.append(1)
+            return 400, json.dumps({"error": "INVALID_PAYLOAD"}).encode()
+
+        result = verify_server("payload", self.URL, retries=3, http_post=post)
+        self.assertFalse(result.verified)
+        self.assertEqual(result.reason, "INVALID_PAYLOAD")
+        self.assertEqual(len(calls), 1)
+
+    def test_network_error_retried_then_fails(self):
+        calls = []
+
+        def post(url, data, headers, timeout):
+            calls.append(1)
+            raise OSError("fetch failed")
+
+        result = verify_server("payload", self.URL, retries=2, http_post=post)
+        self.assertFalse(result.verified)
+        self.assertEqual(result.reason, "fetch failed")
+        self.assertEqual(len(calls), 3)
+
+    def test_network_error_then_success(self):
+        calls = []
+
+        def post(url, data, headers, timeout):
+            calls.append(1)
+            if len(calls) < 2:
+                raise OSError("fetch failed")
+            return 200, json.dumps({"verified": True}).encode()
+
+        result = verify_server("payload", self.URL, retries=2, http_post=post)
+        self.assertTrue(result.verified)
+        self.assertEqual(len(calls), 2)
+
+    def test_server_signature_payload_serialized(self):
+        payload = ServerSignaturePayload(
+            algorithm="SHA-256",
+            signature="sig",
+            verification_data="verified=true",
+            verified=True,
+        )
+        calls = []
+
+        def post(url, data, headers, timeout):
+            calls.append(data)
+            return 200, json.dumps({"verified": True}).encode()
+
+        verify_server(payload, self.URL, http_post=post)
+        sent = json.loads(calls[0])
+        self.assertEqual(
+            sent["payload"],
+            {
+                "algorithm": "SHA-256",
+                "signature": "sig",
+                "verificationData": "verified=true",
+                "verified": True,
+            },
+        )
+
+    def test_fixed_backoff(self):
+        def post(url, data, headers, timeout):
+            raise OSError("fail")
+
+        verify_server(
+            "payload",
+            self.URL,
+            retries=2,
+            retry_delay=0.5,
+            retry_backoff="fixed",
+            http_post=post,
+        )
+        self.assertEqual(self._sleep_calls, [0.5, 0.5])
+
+    def test_exponential_backoff(self):
+        def post(url, data, headers, timeout):
+            raise OSError("fail")
+
+        verify_server(
+            "payload",
+            self.URL,
+            retries=2,
+            retry_delay=0.5,
+            retry_backoff="exponential",
+            http_post=post,
+        )
+        self.assertEqual(self._sleep_calls, [0.5, 1.0])
 
 
 if __name__ == "__main__":

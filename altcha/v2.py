@@ -8,7 +8,9 @@ import re
 import secrets
 import struct
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from typing import Callable, Literal
 import datetime
 
@@ -714,6 +716,14 @@ class ServerSignaturePayload:
         self.verification_data = verification_data
         self.verified = verified
 
+    def to_dict(self) -> dict:
+        return {
+            "algorithm": self.algorithm,
+            "signature": self.signature,
+            "verificationData": self.verification_data,
+            "verified": self.verified,
+        }
+
     @classmethod
     def from_dict(cls, d: dict) -> ServerSignaturePayload:
         return cls(
@@ -859,3 +869,141 @@ def verify_server_signature(
         verified=verified,
         verification_data=verification_data if verified else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Remote (Sentinel API) verification
+# ---------------------------------------------------------------------------
+
+
+class VerifyServerResult:
+    """
+    Result of a remote Sentinel verification via :func:`verify_server`.
+
+    Attributes:
+        verified: ``True`` if Sentinel confirmed the payload is valid.
+        reason: Failure reason (e.g. an error code or exception message), if any.
+        api_key: The API key associated with the payload, if returned.
+        verification_data: Parsed verification data, if returned.
+    """
+
+    def __init__(
+        self,
+        verified: bool,
+        reason: str | None = None,
+        api_key: str | None = None,
+        verification_data: dict | None = None,
+    ):
+        self.verified = verified
+        self.reason = reason
+        self.api_key = api_key
+        self.verification_data = verification_data
+
+    @classmethod
+    def from_dict(cls, d: dict) -> VerifyServerResult:
+        return cls(
+            verified=bool(d.get("verified", False)),
+            reason=d.get("reason"),
+            api_key=d.get("apiKey"),
+            verification_data=d.get("verificationData"),
+        )
+
+
+def _default_http_post(
+    url: str, data: bytes, headers: dict[str, str], timeout: float
+) -> tuple[int, bytes]:
+    """Minimal stdlib HTTP POST, used as the default transport for :func:`verify_server`."""
+    req = urllib.request.Request(url, data=data, method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def _sleep_backoff(attempt: int, delay: float, backoff: str) -> None:
+    wait = delay if backoff == "fixed" else delay * (2**attempt)
+    time.sleep(wait)
+
+
+def verify_server(
+    payload: str | ServerSignaturePayload | dict,
+    url: str,
+    secret: str | None = None,
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: float = 10.0,
+    retries: int = 0,
+    retry_delay: float = 0.3,
+    retry_backoff: Literal["fixed", "exponential"] = "exponential",
+    http_post: Callable[[str, bytes, dict[str, str], float], tuple[int, bytes]]
+    | None = None,
+) -> VerifyServerResult:
+    """
+    Verify a payload remotely via the ALTCHA Sentinel ``/v1/verify/signature`` API.
+
+    Instead of verifying the HMAC signature locally (see :func:`verify_server_signature`),
+    this POSTs the payload to Sentinel and trusts its response. Avoids managing the HMAC
+    secret on your server, at the cost of a network round-trip.
+
+    Args:
+        payload: The payload to verify, as received from ``POST /v1/verify`` — a base64
+            string, a :class:`ServerSignaturePayload`, or an already-decoded dict.
+        url: Full URL of the Sentinel ``/v1/verify/signature`` endpoint.
+        secret: API key secret. If given, Sentinel checks it against the payload's API key.
+        headers: Additional headers to send with the request.
+        timeout: Per-attempt request timeout in seconds. Defaults to ``10``.
+        retries: Number of retry attempts after the first try. Defaults to ``0``.
+        retry_delay: Base delay in seconds between retries. Defaults to ``0.3``.
+        retry_backoff: ``'fixed'`` or ``'exponential'`` backoff applied to *retry_delay*.
+        http_post: Transport override — ``(url, body, headers, timeout) -> (status, body)``.
+            Defaults to a stdlib ``urllib.request``-based implementation. Swap in another
+            HTTP client (e.g. ``requests``, ``httpx``) here if preferred.
+
+    Returns:
+        A :class:`VerifyServerResult` describing the outcome. Failures (HTTP errors, network
+        errors, or a negative Sentinel verdict) are reported via ``verified=False`` with a
+        ``reason``, never raised as exceptions.
+    """
+    if isinstance(payload, ServerSignaturePayload):
+        payload_value: str | dict = payload.to_dict()
+    else:
+        payload_value = payload
+
+    body: dict = {"payload": payload_value}
+    if secret is not None:
+        body["secret"] = secret
+    data = json.dumps(body).encode()
+
+    req_headers = {"Content-Type": "application/json", **(headers or {})}
+    post = http_post or _default_http_post
+
+    attempts = retries + 1
+    for attempt in range(attempts):
+        try:
+            status, resp_body = post(url, data, req_headers, timeout)
+        except Exception as e:
+            if attempt >= attempts - 1:
+                return VerifyServerResult(
+                    verified=False, reason=str(e) or type(e).__name__
+                )
+            _sleep_backoff(attempt, retry_delay, retry_backoff)
+            continue
+
+        if status == 400:
+            try:
+                err_data = json.loads(resp_body.decode())
+            except Exception:
+                err_data = None
+            reason = (err_data or {}).get("error") or f"HTTP_{status}"
+            return VerifyServerResult(verified=False, reason=reason)
+
+        if not (200 <= status < 300):
+            if attempt >= attempts - 1:
+                return VerifyServerResult(verified=False, reason=f"HTTP_{status}")
+            _sleep_backoff(attempt, retry_delay, retry_backoff)
+            continue
+
+        return VerifyServerResult.from_dict(json.loads(resp_body.decode()))
+
+    return VerifyServerResult(verified=False, reason="NETWORK_ERROR")

@@ -11,6 +11,8 @@ from .v2 import ServerSignaturePayload as ServerSignaturePayload
 from .v2 import VerifyServerSignatureResult as VerifyServerSignatureResult
 from .v2 import parse_verification_data as parse_verification_data
 from .v2 import verify_server_signature as verify_server_signature
+from .v2 import VerifyServerResult as VerifyServerResult
+from .v2 import verify_server as verify_server
 from .v2 import create_challenge as create_challenge
 from .v2 import solve_challenge as solve_challenge
 from .v2 import verify_solution as verify_solution

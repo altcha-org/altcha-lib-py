@@ -72,7 +72,7 @@ payload_b64 = Payload(challenge, solution).to_base64()
 
 # Server: verify
 result = verify_solution(payload_b64, HMAC_SECRET)
-print(result.verified)   # True
+print(result.verified)  # True
 ```
 
 ### Deterministic mode
@@ -113,7 +113,8 @@ import datetime
 challenge = create_challenge(
     algorithm="PBKDF2/SHA-256",
     cost=5_000,
-    expires_at=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=10),
+    expires_at=datetime.datetime.now(datetime.timezone.utc)
+    + datetime.timedelta(minutes=10),
     hmac_secret=HMAC_SECRET,
 )
 ```
@@ -123,8 +124,8 @@ challenge = create_challenge(
 Pass your own `derive_key` function to use a custom or third-party KDF:
 
 ```python
-def my_derive_key(parameters, salt: bytes, password: bytes) -> bytes:
-    ...
+def my_derive_key(parameters, salt: bytes, password: bytes) -> bytes: ...
+
 
 challenge = create_challenge(
     algorithm="MY-ALGO",
@@ -232,6 +233,48 @@ Verifies the hash of specific form fields.
 #### `verify_server_signature(payload, hmac_key) → (bool, ServerSignatureVerificationData | None, str | None)`
 
 Verifies an ALTCHA server signature.
+
+#### `verify_server(payload, url, secret, *, headers, timeout, retries, retry_delay, retry_backoff, http_post) → VerifyServerResult`
+
+Verifies a payload remotely via the ALTCHA Sentinel `/v1/verify/signature` API, instead of
+checking the HMAC signature locally. Avoids managing the HMAC secret on your server, at the
+cost of a network round-trip.
+
+```python
+from altcha import verify_server
+
+result = verify_server(
+    payload,  # the payload received from POST /v1/verify
+    url="https://sentinel.example.com/v1/verify/signature",
+    secret=API_KEY_SECRET,  # optional, checked against the payload's API key
+    timeout=10,
+    retries=2,
+)
+
+if result.verified:
+    ...
+```
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `payload` | `str` \| `ServerSignaturePayload` \| `dict` | — | The payload to verify. |
+| `url` | `str` | — | Full URL of the Sentinel `/v1/verify/signature` endpoint. |
+| `secret` | `str` | `None` | API key secret, checked against the payload's API key. |
+| `headers` | `dict` | `None` | Additional headers to send with the request. |
+| `timeout` | `float` | `10` | Per-attempt request timeout in seconds. |
+| `retries` | `int` | `0` | Number of retry attempts after the first try. |
+| `retry_delay` | `float` | `0.3` | Base delay in seconds between retries. |
+| `retry_backoff` | `str` | `'exponential'` | `'fixed'` or `'exponential'` backoff. |
+| `http_post` | callable | stdlib `urllib` | Transport override: `(url, body, headers, timeout) -> (status, body)`. |
+
+Returns `VerifyServerResult` with fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `verified` | `bool` | `True` if Sentinel confirmed the payload is valid. |
+| `reason` | `str \| None` | Failure reason, if any. |
+| `api_key` | `str \| None` | The API key associated with the payload, if returned. |
+| `verification_data` | `dict \| None` | Parsed verification data, if returned. |
 
 ---
 
