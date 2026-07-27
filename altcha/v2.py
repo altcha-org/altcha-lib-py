@@ -665,7 +665,8 @@ def verify_solution(
             verified=valid,
         )
 
-    # 4b. Slow path: re-derive the key from the counter and compare.
+    # 4b. Slow path: re-derive the key from the counter and compare, and
+    # require it to satisfy the signed key prefix.
     if derive_key is None:
         derive_key = _select_derive_key(params.algorithm)
 
@@ -674,7 +675,9 @@ def verify_solution(
     password = _make_password(nonce_bytes, solution.counter)
     recomputed = derive_key(params, salt_bytes, password)
     recomputed_hex = recomputed.hex()
-    invalid = not _constant_time_equal(recomputed_hex, solution.derived_key)
+    key_matches = _constant_time_equal(recomputed_hex, solution.derived_key)
+    prefix_matches = recomputed_hex.startswith(params.key_prefix)
+    invalid = not (key_matches and prefix_matches)
 
     return VerifySolutionResult(
         expired=False,

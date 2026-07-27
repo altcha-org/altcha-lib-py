@@ -5,6 +5,8 @@ import unittest
 import unittest.mock
 
 from altcha.v2 import (
+    DEFAULT_HMAC_ALGORITHM,
+    Challenge,
     ChallengeParameters,
     Payload,
     ServerSignaturePayload,
@@ -12,6 +14,7 @@ from altcha.v2 import (
     _canonical_json,
     _hmac_v2,
     _make_password,
+    _sign_challenge_v2,
     create_challenge,
     derive_key_pbkdf2,
     derive_key_scrypt,
@@ -307,6 +310,42 @@ class TestVerifySolution(unittest.TestCase):
         assert sol is not None
         payload = Payload(ch, sol).to_base64()
         result = verify_solution(payload, HMAC_KEY, hmac_key_secret="wrong-secret")
+        self.assertFalse(result.verified)
+        self.assertTrue(result.invalid_solution)
+
+    def test_slow_path_enforces_key_prefix(self):
+        # Regression test: the fallback (no key signature) verification path must
+        # reject a solution whose derived key is genuinely correct for its counter
+        # but does not satisfy the challenge's key_prefix. Previously only
+        # derived_key == KDF(counter) was checked, letting a client submit any
+        # counter after a single KDF execution and skip the prefix search entirely.
+        ch = create_challenge("SHA-256", cost=10, hmac_secret=HMAC_KEY)
+
+        # Learn the honest KDF output for counter 0 with exactly one hash
+        # computation: solve a probe copy of the challenge whose key_prefix is ""
+        # (matches immediately, no search).
+        probe_params = ChallengeParameters(
+            **{**ch.parameters.__dict__, "key_prefix": ""}
+        )
+        probe_ch = Challenge(parameters=probe_params, signature=None)
+        honest = solve_challenge(probe_ch)
+        assert honest is not None
+        self.assertEqual(honest.counter, 0)
+
+        # Pick a key_prefix the honest key is guaranteed not to satisfy: a byte
+        # can't be both 0x00 and 0xff.
+        mismatched_prefix = "ff" if honest.derived_key.startswith("00") else "00"
+        ch.parameters.key_prefix = mismatched_prefix
+        signed = _sign_challenge_v2(
+            DEFAULT_HMAC_ALGORITHM, ch.parameters, None, HMAC_KEY
+        )
+
+        # Submit the honestly-derived key/counter pair (one KDF execution, no
+        # prefix search) against the challenge whose signed key_prefix it does
+        # not satisfy.
+        bad_sol = Solution(counter=honest.counter, derived_key=honest.derived_key)
+        payload = Payload(signed, bad_sol).to_base64()
+        result = verify_solution(payload, HMAC_KEY)
         self.assertFalse(result.verified)
         self.assertTrue(result.invalid_solution)
 
