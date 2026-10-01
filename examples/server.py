@@ -14,6 +14,9 @@ Then test with curl:
   curl -X POST http://localhost:3000/submit -F "altcha=<paste payload here>"
 """
 
+from __future__ import annotations
+
+import base64
 import json
 import os
 import secrets
@@ -51,7 +54,7 @@ def new_challenge() -> Challenge:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+    def log_message(self, format: str, *args: object) -> None:
         print(f"{self.address_string()} {format % args}")
 
     # ------------------------------------------------------------------
@@ -86,10 +89,8 @@ class Handler(BaseHTTPRequestHandler):
 
         # Detect payload type: server signature payloads contain "verificationData".
         try:
-            import base64 as _b64
-
-            decoded = json.loads(_b64.b64decode(altcha_payload).decode())
-        except Exception:
+            decoded = json.loads(base64.b64decode(altcha_payload).decode())
+        except ValueError:
             self._send(400, {"error": "Invalid altcha payload"})
             return
 
@@ -140,10 +141,11 @@ class Handler(BaseHTTPRequestHandler):
                     break
             if boundary:
                 for section in body.split(f"--{boundary}"):
-                    if 'name="altcha"' in section or "name=altcha" in section:
+                    if (
+                        'name="altcha"' in section or "name=altcha" in section
+                    ) and "\r\n\r\n" in section:
                         # Value follows the blank line after headers.
-                        if "\r\n\r\n" in section:
-                            return section.split("\r\n\r\n", 1)[1].strip()
+                        return section.split("\r\n\r\n", 1)[1].strip()
         else:
             # application/x-www-form-urlencoded
             params = parse_qs(body)

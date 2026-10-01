@@ -26,7 +26,6 @@ from altcha.v2 import (
     verify_solution,
 )
 
-
 HMAC_KEY = "test-secret"
 
 

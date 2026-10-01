@@ -1,11 +1,12 @@
+import base64
 import datetime
 import hashlib
 import hmac
+import json
 import time
 import unittest
-import base64
-import json
 from collections.abc import Callable
+
 from altcha.altcha import (
     ChallengeOptions,
     Payload,
@@ -439,13 +440,13 @@ class TestALTCHA(unittest.TestCase):
         self.assertEqual(solution.number, 100, "Solution be 100")
 
     def test_hash_hex(self):
-        result = hash_hex("SHA-256", "testdata".encode())
-        self.assertEqual(result, hashlib.sha256("testdata".encode()).hexdigest())
+        result = hash_hex("SHA-256", b"testdata")
+        self.assertEqual(result, hashlib.sha256(b"testdata").hexdigest())
 
     def test_hmac_hex(self):
-        result = hmac_hex("SHA-256", "testdata".encode(), self.hmac_key)
+        result = hmac_hex("SHA-256", b"testdata", self.hmac_key)
         expected = hmac.new(
-            self.hmac_key.encode(), "testdata".encode(), hashlib.sha256
+            self.hmac_key.encode(), b"testdata", hashlib.sha256
         ).hexdigest()
         self.assertEqual(result, expected)
 

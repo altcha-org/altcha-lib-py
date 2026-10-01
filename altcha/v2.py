@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import base64
+import datetime
 import hashlib
 import hmac as _hmac_module
-import base64
 import json
 import re
 import secrets
@@ -12,7 +13,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Callable, Literal
-import datetime
 
 # ---------------------------------------------------------------------------
 # Types
@@ -368,8 +368,10 @@ def derive_key_scrypt(
 
 
 try:
-    from argon2.low_level import Type as _Argon2Type  # type: ignore
-    from argon2.low_level import hash_secret_raw as _argon2_hash_secret_raw  # type: ignore
+    from argon2.low_level import (  # type: ignore
+        Type as _Argon2Type,
+        hash_secret_raw as _argon2_hash_secret_raw,
+    )
 
     def derive_key_argon2id(
         parameters: ChallengeParameters, salt: bytes, password: bytes
@@ -806,7 +808,7 @@ def parse_verification_data(
             else:
                 result[key] = value.strip()
         return result
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         return None
 
 
@@ -985,7 +987,7 @@ def verify_server(
     for attempt in range(attempts):
         try:
             status, resp_body = post(url, data, req_headers, timeout)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- custom transports may raise anything
             if attempt >= attempts - 1:
                 return VerifyServerResult(
                     verified=False, reason=str(e) or type(e).__name__
@@ -996,7 +998,7 @@ def verify_server(
         if status == 400:
             try:
                 err_data = json.loads(resp_body.decode())
-            except Exception:
+            except ValueError:
                 err_data = None
             reason = (err_data or {}).get("error") or f"HTTP_{status}"
             return VerifyServerResult(verified=False, reason=reason)

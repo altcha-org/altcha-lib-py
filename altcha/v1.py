@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import base64
+import datetime
 import hashlib
 import hmac
-import base64
 import json
 import secrets
 import time
 import urllib.parse
 from typing import Literal, TypedDict, cast, overload
-import datetime
 
 # Define algorithms
 SHA1: Literal["SHA-1"] = "SHA-1"
@@ -153,7 +153,7 @@ class Payload:
         return base64.b64encode(json.dumps(self.to_dict()).encode()).decode()
 
     @classmethod
-    def from_dict(cls, data: PayloadType) -> "Payload":
+    def from_dict(cls, data: PayloadType) -> Payload:
         """Create a Payload from a dictionary."""
         return cls(
             algorithm=cast(AlgoType, data["algorithm"]),
@@ -164,7 +164,7 @@ class Payload:
         )
 
     @classmethod
-    def from_base64(cls, encoded: str) -> "Payload":
+    def from_base64(cls, encoded: str) -> Payload:
         """Create a Payload from a base64 encoded JSON string."""
         data = cast(PayloadType, json.loads(base64.b64decode(encoded).decode()))
         return cls.from_dict(data)
@@ -771,8 +771,7 @@ def solve_challenge(
             max_number = 1000000
         challenge_str = challenge
 
-    if start < 0:
-        start = 0
+    start = max(start, 0)
 
     start_time = time.time()
     for n in range(start, max_number + 1):
