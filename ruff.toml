@@ -1,0 +1,6 @@
+target-version = "py39"
+
+[lint]
+# `from x import y as y` is the PEP 484 explicit re-export idiom used by the
+# public API modules (altcha/__init__.py, altcha/altcha.py); keep it.
+ignore = ["PLC0414"]
