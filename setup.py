@@ -1,6 +1,9 @@
 from pathlib import Path
 
-from setuptools import find_packages, setup  # type: ignore[import-untyped]
+from setuptools import (  # type: ignore[import-not-found, import-untyped, unused-ignore]
+    find_packages,
+    setup,
+)
 
 setup(
     name="altcha",

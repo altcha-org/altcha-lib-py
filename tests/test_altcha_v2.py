@@ -3,6 +3,7 @@ import json
 import struct
 import unittest
 import unittest.mock
+from typing import cast
 
 from altcha.v2 import (
     DEFAULT_HMAC_ALGORITHM,
@@ -423,14 +424,12 @@ class TestParseVerificationData(unittest.TestCase):
         assert result is not None
         self.assertEqual(result["classification"], "GOOD")
 
-    def test_invalid_returns_none(self):
-        # parse_qsl is very permissive, so simulate a truly broken input
-        result = (
-            parse_verification_data.__wrapped__("")
-            if hasattr(parse_verification_data, "__wrapped__")
-            else parse_verification_data("")
-        )
-        self.assertIsNotNone(result)  # empty string is valid (empty dict)
+    def test_empty_string_returns_empty_dict(self):
+        self.assertEqual(parse_verification_data(""), {})
+
+    def test_unparseable_input_returns_none(self):
+        # bytes parse into bytes pairs, which the str-based coercion rejects
+        self.assertIsNone(parse_verification_data(cast(str, b"verified=true")))
 
 
 class TestVerifyServerSignature(unittest.TestCase):
