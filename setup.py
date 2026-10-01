@@ -7,7 +7,7 @@ from setuptools import (  # type: ignore[import-not-found, import-untyped, unuse
 
 setup(
     name="altcha",
-    version="2.1.0",
+    version="2.2.0",
     description="A library for creating and verifying challenges for ALTCHA.",
     long_description=Path("README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
