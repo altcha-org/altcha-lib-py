@@ -561,17 +561,18 @@ def verify_solution(
     except ValueError:  # Guard against malformed expires
         return False, "Altcha payload expired"
 
-    options = ChallengeOptions(
-        algorithm=cast(AlgoType, p["algorithm"]),
-        hmac_key=hmac_key,
-        number=cast(int, p["number"]),
-        salt=cast(str, p["salt"]),
-    )
-    expected_challenge = create_challenge(options)
+    # Hash the submitted salt verbatim (plus the splicing delimiter). Re-parsing
+    # and re-serializing its params would collapse duplicate keys differently
+    # from the expiry check above, letting a forged salt pass as unexpired.
+    algorithm = cast(AlgoType, p["algorithm"])
+    salt = cast(str, p["salt"])
+    if not salt.endswith("&"):
+        salt += "&"
+    expected_challenge = hash_hex(algorithm, (salt + str(p["number"])).encode())
+    expected_signature = hmac_hex(algorithm, expected_challenge.encode(), hmac_key)
 
     return (
-        expected_challenge.challenge == p["challenge"]
-        and expected_challenge.signature == p["signature"]
+        expected_challenge == p["challenge"] and expected_signature == p["signature"]
     ), None
 
 
