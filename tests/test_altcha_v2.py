@@ -1,4 +1,5 @@
 import datetime
+import itertools
 import json
 import struct
 import unittest
@@ -249,6 +250,27 @@ class TestSolveChallenge(unittest.TestCase):
         ch.parameters.key_prefix = "ff" * 16  # extremely unlikely
         sol = solve_challenge(ch, timeout=0.001)
         self.assertIsNone(sol)
+
+    def test_timeout_with_counter_partition(self):
+        ch = create_challenge("SHA-256", cost=1)
+        ch.parameters.key_prefix = "ff"
+        counters: list[int] = []
+
+        def derive_key(params, salt, password):
+            counters.append(struct.unpack(">I", password[-4:])[0])
+            if len(counters) > 100:
+                raise AssertionError("timeout never fired")
+            return b"\x00" * 32
+
+        # Each monotonic() call advances one second: the deadline passes after 5 tries.
+        with unittest.mock.patch(
+            "altcha.v2.time.monotonic", side_effect=itertools.count()
+        ):
+            sol = solve_challenge(
+                ch, derive_key, counter_start=1, counter_step=2, timeout=5
+            )
+        self.assertIsNone(sol)
+        self.assertEqual(counters, [1, 3, 5, 7, 9])
 
 
 class TestVerifySolution(unittest.TestCase):

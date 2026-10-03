@@ -657,7 +657,7 @@ def solve_challenge(
     counter = counter_start
 
     while True:
-        if counter % 10 == 0 and timeout and (time.monotonic() - start_time) > timeout:
+        if timeout and (time.monotonic() - start_time) > timeout:
             return None
 
         password = _make_password(nonce_bytes, counter)
