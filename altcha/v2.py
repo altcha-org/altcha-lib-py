@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import base64
 import datetime
+import decimal
 import hashlib
 import hmac as _hmac_module
 import json
+import math
 import re
 import secrets
 import struct
@@ -266,18 +268,117 @@ def _hex_to_bytes(value: object) -> bytes | None:
     return bytes.fromhex(value)
 
 
-def _sort_keys(obj: object) -> object:
-    """Recursively sort dict keys; exclude None values (equivalent to JS undefined)."""
-    if isinstance(obj, dict):
-        return {k: _sort_keys(v) for k, v in sorted(obj.items()) if v is not None}
-    if isinstance(obj, list):
-        return [_sort_keys(item) for item in obj]
-    return obj
+_JSON_ESCAPE_RE = re.compile(r'[\x00-\x1f"\\\ud800-\udfff]')
+_JSON_ESCAPES = {
+    '"': '\\"',
+    "\\": "\\\\",
+    "\b": "\\b",
+    "\f": "\\f",
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+}
+_ARRAY_INDEX_RE = re.compile(r"0|[1-9][0-9]*")
+_MAX_ARRAY_INDEX = 2**32 - 2
+_MAX_SAFE_INTEGER = 2**53
+
+
+def _js_string(s: str) -> str:
+    """``JSON.stringify`` of a string: JS escapes, lone surrogates as ``\\uXXXX``."""
+    # Re-pair surrogate halves so only lone surrogates remain as surrogate chars.
+    s = s.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
+    escaped = _JSON_ESCAPE_RE.sub(
+        lambda m: _JSON_ESCAPES.get(m[0], f"\\u{ord(m[0]):04x}"), s
+    )
+    return f'"{escaped}"'
+
+
+def _js_number(x: int | float) -> str:
+    """``JSON.stringify`` of a number: IEEE-754 double, ECMAScript ``Number::toString``."""
+    if isinstance(x, int):
+        if -_MAX_SAFE_INTEGER <= x <= _MAX_SAFE_INTEGER:
+            return str(x)
+        try:
+            x = float(x)
+        except OverflowError:
+            return "null"
+    if not math.isfinite(x):
+        return "null"
+    if x == 0:
+        return "0"
+    # repr() yields the shortest round-tripping digits, as JS does.
+    sign, digit_tuple, exp = decimal.Decimal(repr(x)).as_tuple()
+    assert isinstance(exp, int)
+    padded = "".join(map(str, digit_tuple))
+    digits = padded.rstrip("0")
+    k = len(digits)
+    n = exp + len(padded)  # value = 0.digits * 10**n
+    if k <= n <= 21:
+        out = digits + "0" * (n - k)
+    elif 0 < n <= 21:
+        out = f"{digits[:n]}.{digits[n:]}"
+    elif -6 < n <= 0:
+        out = "0." + "0" * -n + digits
+    else:
+        mantissa = f"{digits[0]}.{digits[1:]}" if k > 1 else digits
+        out = f"{mantissa}e{'+' if n > 0 else '-'}{abs(n - 1)}"
+    return f"-{out}" if sign else out
+
+
+def _js_key(key: object) -> str:
+    """Coerce a dict key the way ``json.dumps`` does when the payload is sent."""
+    if isinstance(key, str):
+        return key
+    if key is None or isinstance(key, (int, float)):
+        return json.dumps(key)
+    raise TypeError(f"keys must be str, int, float, bool or None, not {type(key).__name__}")
+
+
+def _is_array_index(key: str) -> bool:
+    return (
+        _ARRAY_INDEX_RE.fullmatch(key) is not None and int(key) <= _MAX_ARRAY_INDEX
+    )
+
+
+def _js_json(value: object, sort: bool) -> str:
+    """``JSON.stringify(sortKeys(value))`` (when *sort*) or ``JSON.stringify(value)``.
+
+    JS objects enumerate array-index keys first in numeric order, then the other
+    keys in insertion order; ``sortKeys`` inserts them sorted by UTF-16 code units.
+    ``sortKeys`` does not descend into arrays.
+    """
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, str):
+        return _js_string(value)
+    if isinstance(value, (int, float)):
+        return _js_number(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(_js_json(item, False) for item in value) + "]"
+    if isinstance(value, dict):
+        items = {_js_key(k): v for k, v in value.items()}
+        index_keys = sorted((k for k in items if _is_array_index(k)), key=int)
+        other_keys = [k for k in items if not _is_array_index(k)]
+        if sort:
+            other_keys.sort(key=lambda k: k.encode("utf-16-be", "surrogatepass"))
+        return (
+            "{"
+            + ",".join(
+                f"{_js_string(k)}:{_js_json(items[k], sort)}"
+                for k in index_keys + other_keys
+            )
+            + "}"
+        )
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def _canonical_json(obj: dict) -> str:
-    """Produce a sorted-key, compact JSON string for deterministic signing."""
-    return json.dumps(_sort_keys(obj), separators=(",", ":"), ensure_ascii=False)
+    """Canonical JSON for signing; byte-identical to altcha-lib's ``canonicalJSON``."""
+    return _js_json(obj, True)
 
 
 def _hmac_v2(algorithm: str, data: str | bytes, key: str | bytes) -> bytes:

@@ -42,13 +42,43 @@ class TestCanonicalJSON(unittest.TestCase):
         result = _canonical_json({"z": 1, "a": 2, "m": 3})
         self.assertEqual(result, '{"a":2,"m":3,"z":1}')
 
-    def test_excludes_none(self):
+    def test_keeps_null(self):
         result = _canonical_json({"a": 1, "b": None, "c": 3})
-        self.assertEqual(result, '{"a":1,"c":3}')
+        self.assertEqual(result, '{"a":1,"b":null,"c":3}')
 
     def test_nested(self):
         result = _canonical_json({"z": {"b": 2, "a": 1}})
         self.assertEqual(result, '{"z":{"a":1,"b":2}}')
+
+    def test_matches_js(self):
+        # Expected strings produced by altcha-lib's canonicalJSON on the same JSON.
+        vectors = [
+            (
+                "[1e-7,1.0,-0.0,1e16,1e21,123456789012345678,1.5e-6,1e-6,1e400]",
+                "[1e-7,1,0,10000000000000000,1e+21,123456789012345680,"
+                "0.0000015,0.000001,null]",
+            ),
+            (
+                '{"big":12345678901234567890,"ok":9007199254740993}',
+                '{"big":12345678901234567000,"ok":9007199254740992}',
+            ),
+            (
+                '{"10":1,"9":2,"a":3,"01":4,"4294967294":5,"4294967295":6,"-1":7}',
+                '{"9":2,"10":1,"4294967294":5,"-1":7,"01":4,"4294967295":6,"a":3}',
+            ),
+            ('{"\\uff61":1,"\\ud83d\\ude00":2}', '{"\U0001f600":2,"\uff61":1}'),
+            (
+                '{"s":"\\u0000\\u007f\\u2028\\b\\ud800 \\udc00x \\ud83d\\ude00"}',
+                '{"s":"\\u0000\x7f\u2028\\b\\ud800 \\udc00x \U0001f600"}',
+            ),
+            (
+                '{"arr":[{"b":1,"a":2,"1":0},[{"y":1,"x":2}]]}',
+                '{"arr":[{"1":0,"b":1,"a":2},[{"y":1,"x":2}]]}',
+            ),
+        ]
+        for source, expected in vectors:
+            with self.subTest(source=source):
+                self.assertEqual(_canonical_json(json.loads(source)), expected)
 
 
 class TestDeriveKeySha(unittest.TestCase):
@@ -411,6 +441,26 @@ class TestVerifySolution(unittest.TestCase):
                 result = verify_solution(Payload(ch, bad_sol), HMAC_KEY)
                 self.assertFalse(result.verified)
                 self.assertTrue(result.invalid_solution)
+
+    def test_js_signed_data(self):
+        # Payload from altcha-lib createChallenge/solveChallenge (secret "test-secret")
+        # with data {z: null, f: 1e-7, n: 1.5, i: 1.0, big: 2 ** 64, "10": "x",
+        # "9": "y", b: true, s: "é\u2028\ud800😀"}.
+        payload = (
+            "eyJjaGFsbGVuZ2UiOnsicGFyYW1ldGVycyI6eyJhbGdvcml0aG0iOiJTSEEtMjU2IiwiY29zdCI6"
+            "MSwiZGF0YSI6eyI5IjoieSIsIjEwIjoieCIsImIiOnRydWUsImJpZyI6MTg0NDY3NDQwNzM3MDk1"
+            "NTIwMDAsImYiOjFlLTcsImkiOjEsIm4iOjEuNSwicyI6IsOp4oCoXHVkODAw8J+YgCIsInoiOm51"
+            "bGx9LCJrZXlMZW5ndGgiOjMyLCJrZXlQcmVmaXgiOiIyM2RlY2I0YzY1NzFiMDE0NjhhNGExNTU0"
+            "MTJkNjliOCIsIm5vbmNlIjoiMGE4N2IyZGFmZGQ5NjA2YWUzMGQyMmJlOTUwMGU5MTMiLCJzYWx0"
+            "IjoiNDc3MWE1ODhmNDU4MGQ1ZjllYWVmY2FkYjU4MTE4ODUifSwic2lnbmF0dXJlIjoiNWYzZjNj"
+            "MDIzYzg2OTYxZDhiZWRlZjY0OWUxN2RiN2JhY2FmOTQ3ZDY5MjFiMTZkNWM1MGRkMGMxZDk4MjUw"
+            "MiJ9LCJzb2x1dGlvbiI6eyJjb3VudGVyIjo1LCJkZXJpdmVkS2V5IjoiMjNkZWNiNGM2NTcxYjAx"
+            "NDY4YTRhMTU1NDEyZDY5YjgwOWEyZGFkZGY2NDM0ODYwN2Y1NWJhYTFkOGMwNWIyNyIsInRpbWUi"
+            "OjB9fQ=="
+        )
+        result = verify_solution(payload, HMAC_KEY)
+        self.assertFalse(result.invalid_signature)
+        self.assertTrue(result.verified)
 
     def test_payload_object(self):
         ch = create_challenge("SHA-256", cost=1, counter=2, hmac_secret=HMAC_KEY)
