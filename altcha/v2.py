@@ -424,15 +424,19 @@ def _sign_challenge_v2(
 # ---------------------------------------------------------------------------
 
 
+# Exact-match lookups with a sha256 fallback, as in altcha-lib's getDigest.
+_SHA_DIGESTS = {"SHA-512": "sha512", "SHA-384": "sha384"}
+_PBKDF2_DIGESTS = {"PBKDF2/SHA-512": "sha512", "PBKDF2/SHA-384": "sha384"}
+
+
 def _sha_digest(algorithm: str) -> str:
-    """Map algorithm string to hashlib name (e.g. 'SHA-256' → 'sha256')."""
-    return algorithm.lower().replace("-", "")
+    """Map algorithm string to hashlib name; unrecognized values use ``'sha256'``."""
+    return _SHA_DIGESTS.get(algorithm, "sha256")
 
 
 def _pbkdf2_digest(algorithm: str) -> str:
-    """Map PBKDF2 algorithm string to hashlib name (e.g. 'PBKDF2/SHA-256' → 'sha256')."""
-    part = algorithm.split("/")[-1]  # 'SHA-256', 'SHA-384', 'SHA-512'
-    return part.lower().replace("-", "")
+    """Map PBKDF2 algorithm string to hashlib name; unrecognized values use ``'sha256'``."""
+    return _PBKDF2_DIGESTS.get(algorithm, "sha256")
 
 
 def derive_key_sha(
@@ -442,7 +446,8 @@ def derive_key_sha(
     Iterated SHA key derivation (mirrors the JS sha.ts algorithm).
 
     Performs ``cost`` iterations of hashing, starting with ``salt + password``,
-    then feeding the previous hash into the next round.
+    then feeding the previous hash into the next round. 'SHA-384' and 'SHA-512'
+    select those digests; any other algorithm uses SHA-256.
     """
     algo = _sha_digest(parameters.algorithm)
     iterations = max(1, parameters.cost)
@@ -458,7 +463,8 @@ def derive_key_sha(
 def derive_key_pbkdf2(
     parameters: ChallengeParameters, salt: bytes, password: bytes
 ) -> bytes:
-    """PBKDF2 key derivation. Algorithm must be 'PBKDF2/SHA-256', 'PBKDF2/SHA-384', or 'PBKDF2/SHA-512'."""
+    """PBKDF2 key derivation. 'PBKDF2/SHA-384' and 'PBKDF2/SHA-512' select those digests;
+    any other algorithm uses SHA-256."""
     digest = _pbkdf2_digest(parameters.algorithm)
     return hashlib.pbkdf2_hmac(
         digest, password, salt, parameters.cost, parameters.key_length

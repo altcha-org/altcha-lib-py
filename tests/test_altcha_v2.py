@@ -127,6 +127,19 @@ class TestDeriveKeySha(unittest.TestCase):
         result = derive_key_sha(params, b"\xbb", b"\xaa")
         self.assertEqual(len(result), 8)
 
+    def test_unrecognized_algorithm_uses_sha256(self):
+        # altcha-lib sha.ts deriveKey output for SHA-256, salt 00112233, password aabbccdd.
+        expected = "818a3c3da22f44d6d4b92bd6168e71a9228e2b3061b77a018a1bb786206986f2"
+        for algorithm in ("SHA-256", "SHA-1", "sha-512", "MD5"):
+            with self.subTest(algorithm=algorithm):
+                params = ChallengeParameters(
+                    algorithm=algorithm, nonce="", salt="", cost=2, key_length=32
+                )
+                result = derive_key_sha(
+                    params, bytes.fromhex("00112233"), bytes.fromhex("aabbccdd")
+                )
+                self.assertEqual(result.hex(), expected)
+
 
 class TestDeriveKeyPBKDF2(unittest.TestCase):
     def test_basic(self):
@@ -143,6 +156,20 @@ class TestDeriveKeyPBKDF2(unittest.TestCase):
         expected = hashlib.pbkdf2_hmac("sha256", b"\xaa", b"\xbb", 1000, 32)
         result = derive_key_pbkdf2(params, b"\xbb", b"\xaa")
         self.assertEqual(result, expected)
+
+    def test_unrecognized_algorithm_uses_sha256(self):
+        # altcha-lib pbkdf2.ts deriveKey output for PBKDF2/SHA-256, salt 00112233,
+        # password aabbccdd.
+        expected = "3198c239f81895ecedabba4db70278e53a7e622d7c45467719b8fbeb9b41e79c"
+        for algorithm in ("PBKDF2/SHA-256", "PBKDF2/SHA-1", "PBKDF2/sha-512", "PBKDF2"):
+            with self.subTest(algorithm=algorithm):
+                params = ChallengeParameters(
+                    algorithm=algorithm, nonce="", salt="", cost=2, key_length=32
+                )
+                result = derive_key_pbkdf2(
+                    params, bytes.fromhex("00112233"), bytes.fromhex("aabbccdd")
+                )
+                self.assertEqual(result.hex(), expected)
 
 
 class TestDeriveKeyScrypt(unittest.TestCase):
