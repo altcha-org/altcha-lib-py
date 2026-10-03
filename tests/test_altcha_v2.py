@@ -387,6 +387,31 @@ class TestVerifySolution(unittest.TestCase):
                 self.assertFalse(result.verified)
                 self.assertTrue(result.invalid_solution)
 
+    def test_malformed_fields(self):
+        ch = create_challenge("SHA-256", cost=1, counter=3, hmac_secret=HMAC_KEY)
+        sol = solve_challenge(ch)
+        assert sol is not None
+
+        tampered = Challenge.from_dict(ch.to_dict())
+        tampered.parameters.expires_at = "9999999999"
+        result = verify_solution(Payload(tampered, sol), HMAC_KEY)
+        self.assertFalse(result.expired)
+        self.assertTrue(result.invalid_signature)
+
+        for signature in (123, "é", "\ud800"):
+            with self.subTest(signature=signature):
+                bad_ch = Challenge(parameters=ch.parameters, signature=signature)
+                result = verify_solution(Payload(bad_ch, sol), HMAC_KEY)
+                self.assertFalse(result.verified)
+                self.assertTrue(result.invalid_signature)
+
+        for derived_key in ("é", 5, "\ud800"):
+            with self.subTest(derived_key=derived_key):
+                bad_sol = Solution(counter=sol.counter, derived_key=derived_key)
+                result = verify_solution(Payload(ch, bad_sol), HMAC_KEY)
+                self.assertFalse(result.verified)
+                self.assertTrue(result.invalid_solution)
+
     def test_payload_object(self):
         ch = create_challenge("SHA-256", cost=1, counter=2, hmac_secret=HMAC_KEY)
         sol = solve_challenge(ch)

@@ -290,8 +290,13 @@ def _hmac_v2(algorithm: str, data: str | bytes, key: str | bytes) -> bytes:
     return _hmac_module.new(key, data, getattr(hashlib, hash_name)).digest()
 
 
-def _constant_time_equal(a: str, b: str) -> bool:
-    return _hmac_module.compare_digest(a, b)
+def _constant_time_equal(a: object, b: object) -> bool:
+    """Constant-time string comparison; ``False`` if either side is not a string."""
+    if not isinstance(a, str) or not isinstance(b, str):
+        return False
+    return _hmac_module.compare_digest(
+        a.encode("utf-8", "surrogatepass"), b.encode("utf-8", "surrogatepass")
+    )
 
 
 def _sign_challenge_v2(
@@ -625,9 +630,13 @@ def verify_solution(
         solution = payload.solution
 
     # 1. Expiration check.
+    # Non-numeric values are left to the signature check, which rejects them
+    # unless the server signed them.
+    expires_at = challenge.parameters.expires_at
     if (
-        challenge.parameters.expires_at
-        and challenge.parameters.expires_at < time.time()
+        isinstance(expires_at, (int, float))
+        and expires_at
+        and expires_at < time.time()
     ):
         return VerifySolutionResult(
             expired=True,
