@@ -164,8 +164,8 @@ Create a new v2 proof-of-work challenge.
 | `parallelism` | `int` | `None` | Parallelism factor (Argon2id / scrypt). |
 | `expires_at` | `int` \| `datetime` | `None` | Expiry as a Unix timestamp or `datetime`. |
 | `data` | `dict` | `None` | Arbitrary metadata embedded in the challenge. |
-| `hmac_secret` | `str` | `None` | Secret for signing the challenge. If omitted, challenge is unsigned. |
-| `hmac_key_secret` | `str` | `None` | Secret for signing the derived key (fast verification path). |
+| `hmac_secret` | `str` | `None` | Secret for signing the challenge. If omitted or empty, challenge is unsigned. |
+| `hmac_key_secret` | `str` | `None` | Secret for signing the derived key (fast verification path). Ignored if empty. |
 | `hmac_algorithm` | `str` | `'SHA-256'` | HMAC digest algorithm. |
 
 Returns `Challenge`.
@@ -195,7 +195,7 @@ Verify a v2 challenge solution.
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `payload` | `str` \| `Payload` | — | Base64-encoded JSON string or `Payload` object. |
-| `hmac_secret` | `str` | — | Secret used to verify the challenge signature. |
+| `hmac_secret` | `str` | — | Secret used to verify the challenge signature. Raises `ValueError` if empty. |
 | `derive_key` | callable | auto | KDF function for re-derivation. |
 | `hmac_key_secret` | `str` | `None` | Secret for the fast verification path. |
 | `hmac_algorithm` | `str` | `'SHA-256'` | HMAC digest algorithm. |

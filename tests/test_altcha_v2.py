@@ -215,6 +215,24 @@ class TestCreateChallenge(unittest.TestCase):
         )
         self.assertIsNotNone(ch.parameters.key_signature)
 
+    def test_empty_secrets_are_unset(self):
+        for empty in ("", b""):
+            with self.subTest(empty=empty):
+                ch = create_challenge(
+                    "SHA-256", cost=1, counter=0, hmac_secret=empty, hmac_key_secret="k"
+                )
+                self.assertIsNone(ch.signature)
+                self.assertIsNone(ch.parameters.key_signature)
+                ch = create_challenge(
+                    "SHA-256",
+                    cost=1,
+                    counter=0,
+                    hmac_secret=HMAC_KEY,
+                    hmac_key_secret=empty,
+                )
+                self.assertIsNotNone(ch.signature)
+                self.assertIsNone(ch.parameters.key_signature)
+
 
 class TestSolveChallenge(unittest.TestCase):
     def test_solves_sha(self):
@@ -317,6 +335,16 @@ class TestVerifySolution(unittest.TestCase):
         result = verify_solution(payload, HMAC_KEY)
         self.assertFalse(result.verified)
         self.assertTrue(result.invalid_signature)
+
+    def test_empty_secret_raises(self):
+        # A challenge forged with the empty key must not verify under an empty secret.
+        params = create_challenge("SHA-256", cost=1, counter=0).parameters
+        ch = _sign_challenge_v2(DEFAULT_HMAC_ALGORITHM, params, None, "", None)
+        sol = solve_challenge(ch)
+        assert sol is not None
+        for empty in ("", b""):
+            with self.subTest(empty=empty), self.assertRaises(ValueError):
+                verify_solution(Payload(ch, sol), empty)
 
     def test_tampered_counter_fails(self):
         ch = create_challenge("SHA-256", cost=1, counter=5, hmac_secret=HMAC_KEY)
@@ -621,6 +649,17 @@ class TestVerifyServerSignature(unittest.TestCase):
         result = verify_server_signature(payload, "wrong-secret")
         self.assertFalse(result.verified)
         self.assertTrue(result.invalid_signature)
+
+    def test_empty_secret_raises(self):
+        payload = self._make_payload()
+        payload.signature = _hmac_v2(
+            "SHA-256",
+            __import__("hashlib").sha256(payload.verification_data.encode()).digest(),
+            "",
+        ).hex()
+        for empty in ("", b""):
+            with self.subTest(empty=empty), self.assertRaises(ValueError):
+                verify_server_signature(payload, empty)
 
     def test_expired(self):
         payload = self._make_payload(expire_offset=-600)

@@ -408,7 +408,7 @@ def _sign_challenge_v2(
     hmac_key_secret: str | bytes | None = None,
 ) -> Challenge:
     """Sign challenge parameters with HMAC, optionally also signing the derived key."""
-    if derived_key is not None and hmac_key_secret is not None:
+    if derived_key is not None and hmac_key_secret:
         parameters.key_signature = _hmac_v2(
             hmac_algorithm, derived_key, hmac_key_secret
         ).hex()
@@ -569,8 +569,9 @@ def create_challenge(
         expires_at: Expiry as a Unix timestamp (int) or ``datetime``.
         data: Arbitrary metadata to embed in the challenge parameters.
         hmac_secret: Secret used to HMAC-sign the challenge parameters.
-            If omitted, the challenge is unsigned.
-        hmac_key_secret: If set, also HMAC the derived key for fast verification.
+            If omitted or empty, the challenge is unsigned.
+        hmac_key_secret: If set and non-empty, also HMAC the derived key for fast
+            verification.
         hmac_algorithm: HMAC digest algorithm. Defaults to ``'SHA-256'``.
 
     Returns:
@@ -613,7 +614,7 @@ def create_challenge(
         derived_key_bytes = derive_key(parameters, salt_bytes, password)
         parameters.key_prefix = derived_key_bytes[:key_prefix_length].hex()
 
-    if hmac_secret is None:
+    if not hmac_secret:
         return Challenge(parameters=parameters, signature=None)
 
     return _sign_challenge_v2(
@@ -700,14 +701,19 @@ def verify_solution(
 
     Args:
         payload: Base64-encoded JSON payload string or a :class:`Payload` object.
-        hmac_secret: Secret used to verify the challenge signature.
+        hmac_secret: Secret used to verify the challenge signature. Must not be empty.
         derive_key: KDF function for re-derivation. Defaults to built-in for the algorithm.
         hmac_key_secret: Secret used to verify the derived-key signature (fast path).
         hmac_algorithm: HMAC digest algorithm. Defaults to ``'SHA-256'``.
 
     Returns:
         A :class:`VerifySolutionResult` describing the outcome.
+
+    Raises:
+        ValueError: If *hmac_secret* is empty.
     """
+    if not hmac_secret:
+        raise ValueError("hmac_secret must not be empty")
     start_time = time.monotonic()
 
     challenge: Challenge
@@ -954,12 +960,17 @@ def verify_server_signature(
 
     Args:
         payload: Base64-encoded JSON string or a :class:`ServerSignaturePayload` object.
-        hmac_secret: Secret used to verify the HMAC signature.
+        hmac_secret: Secret used to verify the HMAC signature. Must not be empty.
         hmac_algorithm: HMAC digest algorithm. Defaults to ``'SHA-256'``.
 
     Returns:
         A :class:`VerifyServerSignatureResult` describing the outcome.
+
+    Raises:
+        ValueError: If *hmac_secret* is empty.
     """
+    if not hmac_secret:
+        raise ValueError("hmac_secret must not be empty")
     start_time = time.monotonic()
 
     if isinstance(payload, str):
