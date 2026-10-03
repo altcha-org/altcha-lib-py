@@ -256,6 +256,16 @@ def _buffer_starts_with(buf: bytes, prefix: bytes) -> bool:
     return buf[: len(prefix)] == prefix
 
 
+_HEX_RE = re.compile(r"(?:[0-9a-fA-F]{2})*")
+
+
+def _hex_to_bytes(value: object) -> bytes | None:
+    """Decode an even-length hex string; ``None`` for non-strings or malformed hex."""
+    if not isinstance(value, str) or _HEX_RE.fullmatch(value) is None:
+        return None
+    return bytes.fromhex(value)
+
+
 def _sort_keys(obj: object) -> object:
     """Recursively sort dict keys; exclude None values (equivalent to JS undefined)."""
     if isinstance(obj, dict):
@@ -654,11 +664,11 @@ def verify_solution(
 
     # 4a. Fast path: verify derived key via its HMAC signature.
     if params.key_signature and hmac_key_secret:
-        derived_key_bytes = bytes.fromhex(solution.derived_key)
-        expected_key_sig = _hmac_v2(
-            hmac_algorithm, derived_key_bytes, hmac_key_secret
-        ).hex()
-        valid = _constant_time_equal(params.key_signature, expected_key_sig)
+        derived_key_bytes = _hex_to_bytes(solution.derived_key)
+        valid = derived_key_bytes is not None and _constant_time_equal(
+            params.key_signature,
+            _hmac_v2(hmac_algorithm, derived_key_bytes, hmac_key_secret).hex(),
+        )
         return VerifySolutionResult(
             expired=False,
             invalid_signature=False,

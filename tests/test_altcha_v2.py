@@ -313,6 +313,32 @@ class TestVerifySolution(unittest.TestCase):
         self.assertFalse(result.verified)
         self.assertTrue(result.invalid_solution)
 
+    def test_fast_path_malformed_derived_key(self):
+        KEY_SIG_SECRET = "key-sig-secret"
+        ch = create_challenge(
+            "SHA-256",
+            cost=1,
+            counter=3,
+            hmac_secret=HMAC_KEY,
+            hmac_key_secret=KEY_SIG_SECRET,
+        )
+        sol = solve_challenge(ch)
+        assert sol is not None
+        key = sol.derived_key
+        for derived_key in ("zz" * 32, key[:-1], 5, None, f"{key[:2]} {key[2:]}"):
+            with self.subTest(derived_key=derived_key):
+                bad_sol = Solution(counter=sol.counter, derived_key=derived_key)
+                result = verify_solution(
+                    Payload(ch, bad_sol), HMAC_KEY, hmac_key_secret=KEY_SIG_SECRET
+                )
+                self.assertFalse(result.verified)
+                self.assertTrue(result.invalid_solution)
+        upper_sol = Solution(counter=sol.counter, derived_key=key.upper())
+        result = verify_solution(
+            Payload(ch, upper_sol), HMAC_KEY, hmac_key_secret=KEY_SIG_SECRET
+        )
+        self.assertTrue(result.verified)
+
     def test_slow_path_enforces_key_prefix(self):
         # Regression test: the fallback (no key signature) verification path must
         # reject a solution whose derived key is genuinely correct for its counter
