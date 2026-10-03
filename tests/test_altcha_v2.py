@@ -375,6 +375,18 @@ class TestVerifySolution(unittest.TestCase):
         self.assertFalse(result.verified)
         self.assertTrue(result.invalid_solution)
 
+    def test_slow_path_invalid_counter(self):
+        ch = create_challenge("SHA-256", cost=1, counter=3, hmac_secret=HMAC_KEY)
+        sol = solve_challenge(ch)
+        assert sol is not None
+        c = sol.counter
+        for counter in (-1, 2**32 + c, str(c), float(c), None, True):
+            with self.subTest(counter=counter):
+                bad_sol = Solution(counter=counter, derived_key=sol.derived_key)
+                result = verify_solution(Payload(ch, bad_sol).to_base64(), HMAC_KEY)
+                self.assertFalse(result.verified)
+                self.assertTrue(result.invalid_solution)
+
     def test_payload_object(self):
         ch = create_challenge("SHA-256", cost=1, counter=2, hmac_secret=HMAC_KEY)
         sol = solve_challenge(ch)

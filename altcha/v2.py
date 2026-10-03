@@ -679,12 +679,22 @@ def verify_solution(
 
     # 4b. Slow path: re-derive the key from the counter and compare, and
     # require it to satisfy the signed key prefix.
+    counter = solution.counter
+    if type(counter) is not int or not 0 <= counter <= 0xFFFFFFFF:
+        return VerifySolutionResult(
+            expired=False,
+            invalid_signature=False,
+            invalid_solution=True,
+            time=(time.monotonic() - start_time) * 1000,
+            verified=False,
+        )
+
     if derive_key is None:
         derive_key = _select_derive_key(params.algorithm)
 
     nonce_bytes = bytes.fromhex(params.nonce)
     salt_bytes = bytes.fromhex(params.salt)
-    password = _make_password(nonce_bytes, solution.counter)
+    password = _make_password(nonce_bytes, counter)
     recomputed = derive_key(params, salt_bytes, password)
     recomputed_hex = recomputed.hex()
     key_matches = _constant_time_equal(recomputed_hex, solution.derived_key)
