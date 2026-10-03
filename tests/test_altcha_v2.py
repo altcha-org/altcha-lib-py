@@ -427,6 +427,25 @@ class TestVerifySolution(unittest.TestCase):
         self.assertFalse(result.verified)
         self.assertTrue(result.invalid_solution)
 
+    def test_slow_path_uppercase_key_prefix(self):
+        for prefix in ("F2", "F"):
+            with self.subTest(prefix=prefix):
+                params = create_challenge("SHA-256", cost=1).parameters
+                # Uppercase prefix signed as-is, as another issuer may produce.
+                params.key_prefix = prefix
+                ch = _sign_challenge_v2(
+                    DEFAULT_HMAC_ALGORITHM, params, None, HMAC_KEY, None
+                )
+                sol = solve_challenge(ch, timeout=5)
+                assert sol is not None
+                self.assertTrue(sol.derived_key.startswith(prefix.lower()))
+                result = verify_solution(Payload(ch, sol), HMAC_KEY)
+                self.assertTrue(result.verified)
+
+    def test_create_lowercases_key_prefix(self):
+        ch = create_challenge("SHA-256", cost=1, key_prefix="F2A")
+        self.assertEqual(ch.parameters.key_prefix, "f2a")
+
     def test_slow_path_invalid_counter(self):
         ch = create_challenge("SHA-256", cost=1, counter=3, hmac_secret=HMAC_KEY)
         sol = solve_challenge(ch)

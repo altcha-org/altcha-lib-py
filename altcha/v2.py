@@ -560,7 +560,8 @@ def create_challenge(
         counter: If given, pre-solve with this counter and embed the resulting key prefix
             so the client must find this exact counter (deterministic mode).
         key_length: Derived key length in bytes. Defaults to 32.
-        key_prefix: Hex prefix the derived key must start with. Defaults to ``'00'``.
+        key_prefix: Hex prefix the derived key must start with; stored lowercased.
+            Defaults to ``'00'``.
         key_prefix_length: Bytes of the derived key used as prefix in deterministic mode.
             Defaults to ``key_length // 2``.
         memory_cost: Memory cost in KiB (Argon2id / scrypt).
@@ -597,7 +598,7 @@ def create_challenge(
         salt=salt,
         cost=cost,
         key_length=key_length,
-        key_prefix=key_prefix,
+        key_prefix=key_prefix.lower(),
         memory_cost=memory_cost,
         parallelism=parallelism,
         expires_at=expires_at_ts,
@@ -648,7 +649,7 @@ def solve_challenge(
     nonce_bytes = bytes.fromhex(params.nonce)
     salt_bytes = bytes.fromhex(params.salt)
 
-    key_prefix = params.key_prefix
+    key_prefix = params.key_prefix.lower()
     prefix_bytes: bytes | None = (
         bytes.fromhex(key_prefix) if len(key_prefix) % 2 == 0 else None
     )
@@ -808,7 +809,7 @@ def verify_solution(
     recomputed = derive_key(params, salt_bytes, password)
     recomputed_hex = recomputed.hex()
     key_matches = _constant_time_equal(recomputed_hex, solution.derived_key)
-    prefix_matches = recomputed_hex.startswith(params.key_prefix)
+    prefix_matches = recomputed_hex.startswith(params.key_prefix.lower())
     invalid = not (key_matches and prefix_matches)
 
     return VerifySolutionResult(
