@@ -37,6 +37,11 @@ class TestMakePassword(unittest.TestCase):
         pwd = _make_password(nonce, 42)
         self.assertEqual(pwd, b"\xaa\xbb\xcc\xdd" + struct.pack(">I", 42))
 
+    def test_string_mode(self):
+        nonce = bytes.fromhex("aabbccdd")
+        pwd = _make_password(nonce, 1234, "string")
+        self.assertEqual(pwd, b"\xaa\xbb\xcc\xdd1234")
+
 
 class TestCanonicalJSON(unittest.TestCase):
     def test_sorts_keys(self):
@@ -267,6 +272,12 @@ class TestSolveChallenge(unittest.TestCase):
         sol = solve_challenge(ch)
         assert sol is not None
         self.assertEqual(sol.counter, 7)
+
+    def test_solves_string_counter_mode(self):
+        ch = create_challenge("SHA-256", cost=1, counter=1234, counter_mode="string")
+        sol = solve_challenge(ch, counter_mode="string", timeout=5)
+        assert sol is not None
+        self.assertEqual(sol.counter, 1234)
 
     def test_solves_pbkdf2(self):
         ch = create_challenge("PBKDF2/SHA-256", cost=1, counter=3, hmac_secret=HMAC_KEY)
@@ -537,6 +548,29 @@ class TestVerifySolution(unittest.TestCase):
                 result = verify_solution(Payload(ch, bad_sol), HMAC_KEY)
                 self.assertFalse(result.verified)
                 self.assertTrue(result.invalid_solution)
+
+    def test_js_string_counter_mode(self):
+        # altcha-lib createChallenge({counter: 1234, counterMode: 'string'}), secret "h".
+        ch = Challenge.from_dict(
+            {
+                "parameters": {
+                    "algorithm": "SHA-256",
+                    "cost": 1,
+                    "keyLength": 32,
+                    "keyPrefix": "f053b63e7d151cc92d2e3c79af5d37cf",
+                    "nonce": "9fd71ed5d4d76048d3cfb98b2a658d7b",
+                    "salt": "b1662109960ba9534ac4a5a62340f1a7",
+                },
+                "signature": "614fc0a8ae77a2d8773973d53f72cdd42e169b4e6b594e635223e2196782091b",
+            }
+        )
+        sol = solve_challenge(ch, counter_mode="string", timeout=5)
+        assert sol is not None
+        self.assertEqual(sol.counter, 1234)
+        result = verify_solution(Payload(ch, sol), "h", counter_mode="string")
+        self.assertTrue(result.verified)
+        result = verify_solution(Payload(ch, sol), "h")
+        self.assertTrue(result.invalid_solution)
 
     def test_js_signed_data(self):
         # Payload from altcha-lib createChallenge/solveChallenge (secret "test-secret")

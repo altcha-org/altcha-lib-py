@@ -147,7 +147,7 @@ The original ALTCHA proof of work. The client brute-forces a number `n` such tha
 
 ### V2
 
-#### `create_challenge(algorithm, cost, *, derive_key, counter, key_length, key_prefix, key_prefix_length, memory_cost, parallelism, expires_at, data, hmac_secret, hmac_key_secret, hmac_algorithm) → Challenge`
+#### `create_challenge(algorithm, cost, *, derive_key, counter, counter_mode, key_length, key_prefix, key_prefix_length, memory_cost, parallelism, expires_at, data, hmac_secret, hmac_key_secret, hmac_algorithm) → Challenge`
 
 Create a new v2 proof-of-work challenge.
 
@@ -157,6 +157,7 @@ Create a new v2 proof-of-work challenge.
 | `cost` | `int` | — | Algorithm-specific cost (iterations / passes). |
 | `derive_key` | callable | auto | `(parameters, salt: bytes, password: bytes) -> bytes`. Defaults to built-in for the algorithm. |
 | `counter` | `int` | `None` | Pre-solve with this counter (deterministic mode). |
+| `counter_mode` | `str` | `'uint32'` | Counter encoding in the KDF password: `'uint32'` (big-endian) or `'string'` (decimal digits, V1 compatibility). Solver and verifier must use the same mode. |
 | `key_length` | `int` | `32` | Derived key length in bytes. |
 | `key_prefix` | `str` | `'00'` | Hex prefix the derived key must start with. |
 | `key_prefix_length` | `int` | `key_length // 2` | Bytes of the derived key used as prefix in deterministic mode. |
@@ -172,7 +173,7 @@ Returns `Challenge`.
 
 ---
 
-#### `solve_challenge(challenge, derive_key, *, counter_start, counter_step, timeout) → Solution | None`
+#### `solve_challenge(challenge, derive_key, *, counter_start, counter_step, timeout, counter_mode) → Solution | None`
 
 Solve a v2 challenge by brute-forcing counter values.
 
@@ -183,12 +184,13 @@ Solve a v2 challenge by brute-forcing counter values.
 | `counter_start` | `int` | `0` | First counter value to try. |
 | `counter_step` | `int` | `1` | Increment between attempts (use > 1 for partitioned parallel solving). |
 | `timeout` | `float` | `90.0` | Maximum seconds to spend. Returns `None` on timeout. |
+| `counter_mode` | `str` | `'uint32'` | Counter encoding; must match the issuer's. |
 
 Returns `Solution` or `None`.
 
 ---
 
-#### `verify_solution(payload, hmac_secret, derive_key, *, hmac_key_secret, hmac_algorithm) → VerifySolutionResult`
+#### `verify_solution(payload, hmac_secret, derive_key, *, hmac_key_secret, hmac_algorithm, counter_mode) → VerifySolutionResult`
 
 Verify a v2 challenge solution.
 
@@ -199,6 +201,7 @@ Verify a v2 challenge solution.
 | `derive_key` | callable | auto | KDF function for re-derivation. |
 | `hmac_key_secret` | `str` | `None` | Secret for the fast verification path. |
 | `hmac_algorithm` | `str` | `'SHA-256'` | HMAC digest algorithm. |
+| `counter_mode` | `str` | `'uint32'` | Counter encoding used when re-deriving the key; must match the issuer's. |
 
 Returns `VerifySolutionResult` with fields:
 

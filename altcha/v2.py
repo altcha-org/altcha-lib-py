@@ -21,10 +21,13 @@ from typing import Callable, Literal
 # ---------------------------------------------------------------------------
 
 HmacAlgorithmV2 = Literal["SHA-256", "SHA-384", "SHA-512"]
+# Counter encoding in the KDF password; 'string' is for compatibility with V1.
+CounterModeV2 = Literal["uint32", "string"]
 
 DEFAULT_KEY_LENGTH: int = 32
 DEFAULT_KEY_PREFIX: str = "00"
 DEFAULT_HMAC_ALGORITHM: HmacAlgorithmV2 = "SHA-256"
+DEFAULT_COUNTER_MODE: CounterModeV2 = "uint32"
 
 DeriveKeyFunctionV2 = Callable[["ChallengeParameters", bytes, bytes], bytes]
 
@@ -247,8 +250,16 @@ class VerifySolutionResult:
 # ---------------------------------------------------------------------------
 
 
-def _make_password(nonce: bytes, counter: int) -> bytes:
-    """Combine nonce and counter (uint32 big-endian) into a KDF password buffer."""
+def _make_password(
+    nonce: bytes, counter: int, counter_mode: CounterModeV2 = DEFAULT_COUNTER_MODE
+) -> bytes:
+    """Combine nonce and counter into a KDF password buffer.
+
+    ``'uint32'`` appends the counter as a big-endian uint32; ``'string'`` appends its
+    decimal digits.
+    """
+    if counter_mode == "string":
+        return nonce + str(counter).encode()
     return nonce + struct.pack(">I", counter)
 
 
@@ -544,6 +555,7 @@ def create_challenge(
     *,
     derive_key: DeriveKeyFunctionV2 | None = None,
     counter: int | None = None,
+    counter_mode: CounterModeV2 = DEFAULT_COUNTER_MODE,
     key_length: int = DEFAULT_KEY_LENGTH,
     key_prefix: str = DEFAULT_KEY_PREFIX,
     key_prefix_length: int | None = None,
@@ -565,6 +577,8 @@ def create_challenge(
             Defaults to the built-in function selected by *algorithm*.
         counter: If given, pre-solve with this counter and embed the resulting key prefix
             so the client must find this exact counter (deterministic mode).
+        counter_mode: Counter encoding in the KDF password: ``'uint32'`` (default) or
+            ``'string'`` (V1 compatibility). Solver and verifier must use the same mode.
         key_length: Derived key length in bytes. Defaults to 32.
         key_prefix: Hex prefix the derived key must start with; stored lowercased.
             Defaults to ``'00'``.
@@ -616,7 +630,7 @@ def create_challenge(
     if counter is not None:
         nonce_bytes = bytes.fromhex(nonce)
         salt_bytes = bytes.fromhex(salt)
-        password = _make_password(nonce_bytes, counter)
+        password = _make_password(nonce_bytes, counter, counter_mode)
         derived_key_bytes = derive_key(parameters, salt_bytes, password)
         parameters.key_prefix = derived_key_bytes[:key_prefix_length].hex()
 
@@ -635,6 +649,7 @@ def solve_challenge(
     counter_start: int = 0,
     counter_step: int = 1,
     timeout: float = 90.0,
+    counter_mode: CounterModeV2 = DEFAULT_COUNTER_MODE,
 ) -> Solution | None:
     """
     Solve a v2 challenge by brute-forcing counter values.
@@ -645,6 +660,8 @@ def solve_challenge(
         counter_start: First counter value to try.
         counter_step: Increment between attempts. Use > 1 for parallel partitioning.
         timeout: Maximum seconds to spend. Returns ``None`` on timeout.
+        counter_mode: Counter encoding in the KDF password: ``'uint32'`` (default) or
+            ``'string'``. Must match the mode used by the issuer.
 
     Returns:
         A :class:`Solution` on success, or ``None`` if no solution was found in time.
@@ -668,7 +685,7 @@ def solve_challenge(
         if timeout and (time.monotonic() - start_time) > timeout:
             return None
 
-        password = _make_password(nonce_bytes, counter)
+        password = _make_password(nonce_bytes, counter, counter_mode)
         derived_key = derive_key(params, salt_bytes, password)
 
         matched = (
@@ -694,6 +711,7 @@ def verify_solution(
     *,
     hmac_key_secret: str | bytes | None = None,
     hmac_algorithm: HmacAlgorithmV2 = DEFAULT_HMAC_ALGORITHM,
+    counter_mode: CounterModeV2 = DEFAULT_COUNTER_MODE,
 ) -> VerifySolutionResult:
     """
     Verify a v2 challenge solution.
@@ -711,6 +729,8 @@ def verify_solution(
         derive_key: KDF function for re-derivation. Defaults to built-in for the algorithm.
         hmac_key_secret: Secret used to verify the derived-key signature (fast path).
         hmac_algorithm: HMAC digest algorithm. Defaults to ``'SHA-256'``.
+        counter_mode: Counter encoding used when re-deriving the key: ``'uint32'``
+            (default) or ``'string'``. Must match the mode used by the issuer.
 
     Returns:
         A :class:`VerifySolutionResult` describing the outcome.
@@ -817,7 +837,7 @@ def verify_solution(
 
     nonce_bytes = bytes.fromhex(params.nonce)
     salt_bytes = bytes.fromhex(params.salt)
-    password = _make_password(nonce_bytes, counter)
+    password = _make_password(nonce_bytes, counter, counter_mode)
     recomputed = derive_key(params, salt_bytes, password)
     recomputed_hex = recomputed.hex()
     key_matches = _constant_time_equal(recomputed_hex, solution.derived_key)
