@@ -599,6 +599,47 @@ class TestVerifySolution(unittest.TestCase):
         result = verify_solution(Payload(ch, sol), "h")
         self.assertTrue(result.invalid_solution)
 
+    def test_js_explicit_null_parameters(self):
+        # altcha-lib createChallenge({counter: 3, data: null, expiresAt: null,
+        # memoryCost: null, parallelism: null}), secret "h".
+        payload = Payload.from_dict(
+            {
+                "challenge": {
+                    "parameters": {
+                        "algorithm": "SHA-256",
+                        "cost": 1,
+                        "data": None,
+                        "expiresAt": None,
+                        "keyLength": 32,
+                        "keyPrefix": "b5c0c87c5ed580190215c2c3ccb90c72",
+                        "keySignature": "d45724a0a21ccec78998b72af23d1d67"
+                        "29a71599a451c790ce2eb37f40921db1",
+                        "memoryCost": None,
+                        "nonce": "5ac6208848fe2764be876813be4a78bd",
+                        "parallelism": None,
+                        "salt": "2c171440877c1de04d0c4c5fabec6f42",
+                    },
+                    "signature": "37c51b7a158c24512ccc91d8b1ac575d"
+                    "ebb12c32e463e670d5ebff1801496cf7",
+                },
+                "solution": {
+                    "counter": 3,
+                    "derivedKey": "b5c0c87c5ed580190215c2c3ccb90c72"
+                    "0e3c45ec32922541529b16b7d67dcad0",
+                },
+            }
+        )
+        self.assertTrue(verify_solution(payload.to_base64(), "h").verified)
+
+        # Adding a null key to a challenge signed without it is tampering.
+        ch = create_challenge("SHA-256", cost=1, counter=3, hmac_secret="h")
+        sol = solve_challenge(ch)
+        assert sol is not None
+        tampered = ch.to_dict()
+        tampered["parameters"]["data"] = None
+        result = verify_solution(Payload(Challenge.from_dict(tampered), sol), "h")
+        self.assertTrue(result.invalid_signature)
+
     def test_js_signed_data(self):
         # Payload from altcha-lib createChallenge/solveChallenge (secret "test-secret")
         # with data {z: null, f: 1e-7, n: 1.5, i: 1.0, big: 2 ** 64, "10": "x",

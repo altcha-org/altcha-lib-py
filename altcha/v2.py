@@ -36,6 +36,15 @@ DeriveKeyFunctionV2 = Callable[["ChallengeParameters", bytes, bytes], bytes]
 # Data classes
 # ---------------------------------------------------------------------------
 
+# Optional parameter keys (camelCase) and their attribute names.
+_OPTIONAL_PARAMETERS = {
+    "keySignature": "key_signature",
+    "memoryCost": "memory_cost",
+    "parallelism": "parallelism",
+    "expiresAt": "expires_at",
+    "data": "data",
+}
+
 
 class ChallengeParameters:
     """
@@ -54,6 +63,11 @@ class ChallengeParameters:
         expires_at: Unix timestamp (seconds) after which the challenge is invalid.
         data: Arbitrary metadata embedded in the challenge.
     """
+
+    # Optional keys received as explicit JSON null; kept so the signed JSON matches
+    # issuers (altcha-lib) that sign them as null. Set on the instance by from_dict
+    # only when present, so __dict__ holds just the constructor arguments.
+    _explicit_nulls: frozenset[str] = frozenset()
 
     def __init__(
         self,
@@ -91,21 +105,15 @@ class ChallengeParameters:
             "nonce": self.nonce,
             "salt": self.salt,
         }
-        if self.key_signature is not None:
-            d["keySignature"] = self.key_signature
-        if self.memory_cost is not None:
-            d["memoryCost"] = self.memory_cost
-        if self.parallelism is not None:
-            d["parallelism"] = self.parallelism
-        if self.expires_at is not None:
-            d["expiresAt"] = self.expires_at
-        if self.data is not None:
-            d["data"] = self.data
+        for key, attr in _OPTIONAL_PARAMETERS.items():
+            value = getattr(self, attr)
+            if value is not None or key in self._explicit_nulls:
+                d[key] = value
         return d
 
     @classmethod
     def from_dict(cls, d: dict) -> ChallengeParameters:
-        return cls(
+        params = cls(
             algorithm=d["algorithm"],
             nonce=d["nonce"],
             salt=d["salt"],
@@ -118,6 +126,12 @@ class ChallengeParameters:
             expires_at=d.get("expiresAt"),
             data=d.get("data"),
         )
+        explicit_nulls = frozenset(
+            key for key in _OPTIONAL_PARAMETERS if key in d and d[key] is None
+        )
+        if explicit_nulls:
+            params._explicit_nulls = explicit_nulls
+        return params
 
 
 class Challenge:
