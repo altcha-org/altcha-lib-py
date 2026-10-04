@@ -308,7 +308,8 @@ def _js_number(x: int | float) -> str:
     """``JSON.stringify`` of a number: IEEE-754 double, ECMAScript ``Number::toString``."""
     if isinstance(x, int):
         if -_MAX_SAFE_INTEGER <= x <= _MAX_SAFE_INTEGER:
-            return str(x)
+            # int.__repr__ like json.dumps: subclasses (IntEnum) may override str().
+            return int.__repr__(x)
         try:
             x = float(x)
         except OverflowError:
@@ -318,7 +319,7 @@ def _js_number(x: int | float) -> str:
     if x == 0:
         return "0"
     # repr() yields the shortest round-tripping digits, as JS does.
-    sign, digit_tuple, exp = decimal.Decimal(repr(x)).as_tuple()
+    sign, digit_tuple, exp = decimal.Decimal(float.__repr__(x)).as_tuple()
     assert isinstance(exp, int)
     padded = "".join(map(str, digit_tuple))
     digits = padded.rstrip("0")
@@ -342,13 +343,13 @@ def _js_key(key: object) -> str:
         return key
     if key is None or isinstance(key, (int, float)):
         return json.dumps(key)
-    raise TypeError(f"keys must be str, int, float, bool or None, not {type(key).__name__}")
+    raise TypeError(
+        f"keys must be str, int, float, bool or None, not {type(key).__name__}"
+    )
 
 
 def _is_array_index(key: str) -> bool:
-    return (
-        _ARRAY_INDEX_RE.fullmatch(key) is not None and int(key) <= _MAX_ARRAY_INDEX
-    )
+    return _ARRAY_INDEX_RE.fullmatch(key) is not None and int(key) <= _MAX_ARRAY_INDEX
 
 
 def _js_json(value: object, sort: bool) -> str:
@@ -750,7 +751,7 @@ def verify_solution(
             d = json.loads(base64.b64decode(payload).decode())
             challenge = Challenge.from_dict(d["challenge"])
             solution = Solution.from_dict(d["solution"])
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError, RecursionError):
             return VerifySolutionResult(
                 expired=False,
                 invalid_signature=None,
@@ -767,11 +768,7 @@ def verify_solution(
     # Non-numeric values are left to the signature check, which rejects them
     # unless the server signed them.
     expires_at = challenge.parameters.expires_at
-    if (
-        isinstance(expires_at, (int, float))
-        and expires_at
-        and expires_at < time.time()
-    ):
+    if isinstance(expires_at, (int, float)) and expires_at and expires_at < time.time():
         return VerifySolutionResult(
             expired=True,
             invalid_signature=None,
@@ -790,11 +787,15 @@ def verify_solution(
             verified=False,
         )
 
-    # 3. Verify challenge signature (tamper check).
-    params_dict = challenge.parameters.to_dict()
-    canonical = _canonical_json(params_dict)
-    expected_sig = _hmac_v2(hmac_algorithm, canonical, hmac_secret).hex()
-    if not _constant_time_equal(challenge.signature, expected_sig):
+    # 3. Verify challenge signature (tamper check). Data nested too deeply to
+    # serialize cannot carry a valid signature.
+    try:
+        canonical = _canonical_json(challenge.parameters.to_dict())
+    except RecursionError:
+        canonical = None
+    if canonical is None or not _constant_time_equal(
+        challenge.signature, _hmac_v2(hmac_algorithm, canonical, hmac_secret).hex()
+    ):
         return VerifySolutionResult(
             expired=False,
             invalid_signature=True,

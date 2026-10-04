@@ -1,4 +1,5 @@
 import datetime
+import enum
 import itertools
 import json
 import struct
@@ -55,6 +56,18 @@ class TestCanonicalJSON(unittest.TestCase):
     def test_nested(self):
         result = _canonical_json({"z": {"b": 2, "a": 1}})
         self.assertEqual(result, '{"z":{"a":1,"b":2}}')
+
+    def test_number_subclasses_serialize_as_values(self):
+        # Before 3.11, str(IntEnum member) is "Cls.NAME"; the wire format uses the value.
+        class Level(enum.IntEnum):
+            HIGH = 3
+
+        class Ratio(float):
+            def __repr__(self) -> str:
+                return "Ratio()"
+
+        result = _canonical_json({"l": Level.HIGH, "r": Ratio(0.5)})
+        self.assertEqual(result, '{"l":3,"r":0.5}')
 
     def test_matches_js(self):
         # Expected strings produced by altcha-lib's canonicalJSON on the same JSON.
@@ -523,6 +536,20 @@ class TestVerifySolution(unittest.TestCase):
                 result = verify_solution(Payload(ch, bad_sol).to_base64(), HMAC_KEY)
                 self.assertFalse(result.verified)
                 self.assertTrue(result.invalid_solution)
+
+    def test_deeply_nested_data_is_invalid_signature(self):
+        ch = create_challenge("SHA-256", cost=1, counter=3, hmac_secret=HMAC_KEY)
+        sol = solve_challenge(ch)
+        assert sol is not None
+        data: dict = {}
+        node = data
+        for _ in range(5000):
+            node["x"] = {}
+            node = node["x"]
+        ch.parameters.data = data
+        result = verify_solution(Payload(ch, sol), HMAC_KEY)
+        self.assertFalse(result.verified)
+        self.assertTrue(result.invalid_signature)
 
     def test_malformed_fields(self):
         ch = create_challenge("SHA-256", cost=1, counter=3, hmac_secret=HMAC_KEY)
