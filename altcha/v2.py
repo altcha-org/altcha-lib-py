@@ -372,6 +372,10 @@ def _js_json(value: object, sort: bool) -> str:
     JS objects enumerate array-index keys first in numeric order, then the other
     keys in insertion order; ``sortKeys`` inserts them sorted by UTF-16 code units.
     ``sortKeys`` does not descend into arrays.
+
+    Raises:
+        ValueError: On a ``__proto__`` key at a sorted level. ``sortKeys`` assigns it
+            through the prototype setter, so JS leaves it unsigned; rejected instead.
     """
     if value is None:
         return "null"
@@ -390,6 +394,8 @@ def _js_json(value: object, sort: bool) -> str:
         index_keys = sorted((k for k in items if _is_array_index(k)), key=int)
         other_keys = [k for k in items if not _is_array_index(k)]
         if sort:
+            if "__proto__" in items:
+                raise ValueError("'__proto__' keys cannot be signed")
             other_keys.sort(key=lambda k: k.encode("utf-16-be", "surrogatepass"))
         return (
             "{"
@@ -602,7 +608,8 @@ def create_challenge(
         memory_cost: Memory cost in KiB (Argon2id / scrypt).
         parallelism: Parallelism factor (Argon2id / scrypt).
         expires_at: Expiry as a Unix timestamp (int) or ``datetime``.
-        data: Arbitrary metadata to embed in the challenge parameters.
+        data: Arbitrary metadata to embed in the challenge parameters. Dict keys
+            named ``'__proto__'`` (outside arrays) cannot be signed.
         hmac_secret: Secret used to HMAC-sign the challenge parameters.
             If omitted or empty, the challenge is unsigned.
         hmac_key_secret: If set and non-empty, also HMAC the derived key for fast
@@ -611,6 +618,9 @@ def create_challenge(
 
     Returns:
         A :class:`Challenge` instance.
+
+    Raises:
+        ValueError: If signing and *data* contains a ``'__proto__'`` key.
     """
     if derive_key is None:
         derive_key = _select_derive_key(algorithm)
@@ -801,11 +811,11 @@ def verify_solution(
             verified=False,
         )
 
-    # 3. Verify challenge signature (tamper check). Data nested too deeply to
-    # serialize cannot carry a valid signature.
+    # 3. Verify challenge signature (tamper check). Data that cannot be serialized
+    # (nested too deeply, '__proto__' keys) cannot carry a valid signature.
     try:
         canonical = _canonical_json(challenge.parameters.to_dict())
-    except RecursionError:
+    except (RecursionError, ValueError):
         canonical = None
     if canonical is None or not _constant_time_equal(
         challenge.signature, _hmac_v2(hmac_algorithm, canonical, hmac_secret).hex()

@@ -94,6 +94,10 @@ class TestCanonicalJSON(unittest.TestCase):
                 '{"arr":[{"b":1,"a":2,"1":0},[{"y":1,"x":2}]]}',
                 '{"arr":[{"1":0,"b":1,"a":2},[{"y":1,"x":2}]]}',
             ),
+            (
+                '{"arr":[{"__proto__":{"b":1},"a":2}]}',
+                '{"arr":[{"__proto__":{"b":1},"a":2}]}',
+            ),
         ]
         for source, expected in vectors:
             with self.subTest(source=source):
@@ -536,6 +540,25 @@ class TestVerifySolution(unittest.TestCase):
                 result = verify_solution(Payload(ch, bad_sol).to_base64(), HMAC_KEY)
                 self.assertFalse(result.verified)
                 self.assertTrue(result.invalid_solution)
+
+    def test_proto_key_is_rejected(self):
+        for data in ({"__proto__": 1}, {"d": {"__proto__": None, "y": 1}}):
+            with self.subTest(data=data):
+                with self.assertRaises(ValueError):
+                    create_challenge("SHA-256", cost=1, data=data, hmac_secret=HMAC_KEY)
+
+        # Injected by a client into a signed challenge; JS would ignore it when signing.
+        ch = create_challenge(
+            "SHA-256", cost=1, counter=3, data={"d": {"y": 1}}, hmac_secret=HMAC_KEY
+        )
+        sol = solve_challenge(ch)
+        assert sol is not None
+        tampered = Challenge.from_dict(ch.to_dict())
+        assert tampered.parameters.data is not None
+        tampered.parameters.data["d"]["__proto__"] = "x"
+        result = verify_solution(Payload(tampered, sol).to_base64(), HMAC_KEY)
+        self.assertFalse(result.verified)
+        self.assertTrue(result.invalid_signature)
 
     def test_deeply_nested_data_is_invalid_signature(self):
         ch = create_challenge("SHA-256", cost=1, counter=3, hmac_secret=HMAC_KEY)
