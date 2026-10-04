@@ -318,7 +318,7 @@ def _js_string(s: str) -> str:
     return f'"{escaped}"'
 
 
-def _js_number(x: int | float) -> str:
+def _js_number(x: float) -> str:
     """``JSON.stringify`` of a number: IEEE-754 double, ECMAScript ``Number::toString``."""
     if isinstance(x, int):
         if -_MAX_SAFE_INTEGER <= x <= _MAX_SAFE_INTEGER:

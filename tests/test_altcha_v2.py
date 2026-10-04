@@ -1,7 +1,7 @@
 import base64
 import datetime
-import hashlib
 import enum
+import hashlib
 import itertools
 import json
 import struct
@@ -76,8 +76,10 @@ class TestCanonicalJSON(unittest.TestCase):
         vectors = [
             (
                 "[1e-7,1.0,-0.0,1e16,1e21,123456789012345678,1.5e-6,1e-6,1e400]",
-                "[1e-7,1,0,10000000000000000,1e+21,123456789012345680,"
-                "0.0000015,0.000001,null]",
+                (
+                    "[1e-7,1,0,10000000000000000,1e+21,123456789012345680,"
+                    "0.0000015,0.000001,null]"
+                ),
             ),
             (
                 '{"big":12345678901234567890,"ok":9007199254740993}',
@@ -545,9 +547,8 @@ class TestVerifySolution(unittest.TestCase):
 
     def test_proto_key_is_rejected(self):
         for data in ({"__proto__": 1}, {"d": {"__proto__": None, "y": 1}}):
-            with self.subTest(data=data):
-                with self.assertRaises(ValueError):
-                    create_challenge("SHA-256", cost=1, data=data, hmac_secret=HMAC_KEY)
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                create_challenge("SHA-256", cost=1, data=data, hmac_secret=HMAC_KEY)
 
         # Injected by a client into a signed challenge; JS would ignore it when signing.
         ch = create_challenge(
