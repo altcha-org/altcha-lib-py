@@ -1,4 +1,6 @@
+import base64
 import datetime
+import hashlib
 import enum
 import itertools
 import json
@@ -812,6 +814,34 @@ class TestVerifyServerSignature(unittest.TestCase):
         for empty in ("", b""):
             with self.subTest(empty=empty), self.assertRaises(ValueError):
                 verify_server_signature(payload, empty)
+
+    def test_malformed_fields(self):
+        valid = self._make_payload().to_dict()
+        cases = [
+            ("algorithm", 5),
+            ("algorithm", None),
+            ("algorithm", "nope"),
+            ("algorithm", "shake_128"),
+            ("algorithm", "MD5"),
+            ("verificationData", 5),
+            ("verificationData", None),
+        ]
+        for field, value in cases:
+            with self.subTest(field=field, value=value):
+                encoded = base64.b64encode(
+                    json.dumps({**valid, field: value}).encode()
+                ).decode()
+                result = verify_server_signature(encoded, HMAC_KEY)
+                self.assertFalse(result.verified)
+                self.assertTrue(result.invalid_signature)
+
+    def test_lone_surrogate_hashed_like_text_encoder(self):
+        # JS TextEncoder replaces lone surrogates with U+FFFD before hashing.
+        vdata = "verified=true&note=\ud800"
+        replaced = "verified=true&note=\ufffd".encode()
+        sig = _hmac_v2("SHA-256", hashlib.sha256(replaced).digest(), HMAC_KEY).hex()
+        payload = ServerSignaturePayload("SHA-256", sig, vdata, True)
+        self.assertTrue(verify_server_signature(payload, HMAC_KEY).verified)
 
     def test_expired(self):
         payload = self._make_payload(expire_offset=-600)

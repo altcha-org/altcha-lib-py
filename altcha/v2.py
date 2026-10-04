@@ -1000,6 +1000,17 @@ def parse_verification_data(
         return None
 
 
+# Digests available to WebCrypto, which altcha-lib uses to hash verificationData.
+_SERVER_SIGNATURE_HASHES = frozenset({"sha1", "sha256", "sha384", "sha512"})
+
+
+def _js_utf8(s: str) -> bytes:
+    """UTF-8 encode like JS ``TextEncoder``: lone surrogates become U+FFFD."""
+    return (
+        s.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace").encode()
+    )
+
+
 def verify_server_signature(
     payload: str | ServerSignaturePayload,
     hmac_secret: str | bytes,
@@ -1011,6 +1022,8 @@ def verify_server_signature(
 
     Args:
         payload: Base64-encoded JSON string or a :class:`ServerSignaturePayload` object.
+            Its ``algorithm`` (hash of ``verificationData``) must be SHA-1, SHA-256,
+            SHA-384 or SHA-512; malformed payloads fail with ``invalid_signature``.
         hmac_secret: Secret used to verify the HMAC signature. Must not be empty.
         hmac_algorithm: HMAC digest algorithm. Defaults to ``'SHA-256'``.
 
@@ -1027,7 +1040,7 @@ def verify_server_signature(
     if isinstance(payload, str):
         try:
             p = ServerSignaturePayload.from_base64(payload)
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError, RecursionError):
             return VerifyServerSignatureResult(
                 expired=False,
                 invalid_signature=True,
@@ -1040,8 +1053,21 @@ def verify_server_signature(
         p = payload
 
     # Compute expected signature: HMAC(hash(verificationData), secret)
-    hash_name = p.algorithm.lower().replace("-", "")
-    data_hash = hashlib.new(hash_name, p.verification_data.encode()).digest()
+    hash_name = (
+        p.algorithm.lower().replace("-", "") if isinstance(p.algorithm, str) else None
+    )
+    if hash_name not in _SERVER_SIGNATURE_HASHES or not isinstance(
+        p.verification_data, str
+    ):
+        return VerifyServerSignatureResult(
+            expired=False,
+            invalid_signature=True,
+            invalid_solution=True,
+            time=(time.monotonic() - start_time) * 1000,
+            verified=False,
+            verification_data=None,
+        )
+    data_hash = hashlib.new(hash_name, _js_utf8(p.verification_data)).digest()
     expected_sig = _hmac_v2(hmac_algorithm, data_hash, hmac_secret).hex()
 
     verification_data = parse_verification_data(p.verification_data)
