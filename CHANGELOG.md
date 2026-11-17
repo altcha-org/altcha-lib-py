@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.0] - 2026-11-17
+
+### Added
+
+- `verify_server` supports Sentinel v2's `POST /v2/verify/signature`. Pass the ID and
+  secret of a `restricted` or `full` API key as `api_key` and `secret`: they are sent as
+  HTTP Basic credentials and `secret` is left out of the body. `api_key` without `secret`
+  raises `ValueError`. Sentinel v1 (`/v1/verify/signature`) works as before when `api_key`
+  is omitted.
+- `ServerSignaturePayload` carries the optional `apiKey` and `id` fields (`api_key`, `id`)
+  and keeps them in `to_dict`, so a payload object passed to `verify_server` still names
+  its signing key.
+
+### Changed
+
+- `verify_server` no longer retries `4xx` responses (e.g. `401`/`403` for missing or wrong
+  credentials, `429`); they return `verified=False` at once. For error responses, `reason`
+  is the body's `code`, else its `error`, else `HTTP_<status>`; `5xx` responses that
+  exhaust the retries report it too (was always `HTTP_<status>`).
+
+### Fixed
+
+- `verify_server` returns `reason='INVALID_RESPONSE'` (after retrying) instead of raising
+  when a `2xx` response body is not a JSON object.
+
 ## [2.3.0] - 2026-10-04
 
 Aligns the v2 API (`altcha.v2`) with the reference JavaScript implementation
