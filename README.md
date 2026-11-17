@@ -231,17 +231,99 @@ Returns `VerifySolutionResult` with fields:
 
 #### `verify_fields_hash(form_data, fields, fields_hash, algorithm) → bool`
 
-Verifies the hash of specific form fields.
+Verifies the hash of specific form fields: the hex hash (`algorithm`, e.g. `'SHA-256'`) of
+the values of `fields` in `form_data`, joined with `\n`, must equal `fields_hash`.
 
-#### `verify_server_signature(payload, hmac_key) → (bool, ServerSignatureVerificationData | None, str | None)`
+#### `verify_server_signature(payload, hmac_secret, *, hmac_algorithm) → VerifyServerSignatureResult`
 
-Verifies an ALTCHA server signature.
+Verifies an ALTCHA server signature locally, e.g. the `payload` of Sentinel's
+`POST /v2/verify` (or `/v1/verify`) response, with the secret of the API key that signed
+it. Sentinel v1 and v2 sign the same way, so this works for both. To have Sentinel check
+the payload instead, use `verify_server` (below).
 
-#### `verify_server(payload, url, secret, *, headers, timeout, retries, retry_delay, retry_backoff, http_post) → VerifyServerResult`
+```python
+from altcha import verify_fields_hash, verify_server_signature
 
-Verifies a payload remotely via the ALTCHA Sentinel `/v1/verify/signature` API, instead of
+result = verify_server_signature(payload, API_KEY_SECRET)
+
+if result.verified:
+    data = result.verification_data
+    # Detect tampering with the submitted form fields
+    if data.get("fields") and not verify_fields_hash(
+        form_data, data["fields"], data["fieldsHash"], "SHA-256"
+    ):
+        ...
+```
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `payload` | `str` \| `ServerSignaturePayload` | — | Base64-encoded JSON string or `ServerSignaturePayload` object. Its `algorithm` (hash of `verificationData`) must be `'SHA-1'`, `'SHA-256'`, `'SHA-384'` or `'SHA-512'`. |
+| `hmac_secret` | `str` \| `bytes` | — | Secret used to verify the HMAC signature (the API key secret for Sentinel). Raises `ValueError` if empty. |
+| `hmac_algorithm` | `str` | `'SHA-256'` | HMAC digest algorithm. |
+
+Returns `VerifyServerSignatureResult` with fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `verified` | `bool` | `True` if the signature is valid, the payload has not expired, and `verified` is `true` in both the payload and the signed verification data. |
+| `expired` | `bool` | `True` if the signed `expire` is in the past. |
+| `invalid_signature` | `bool` | `True` if the signature does not match, or the payload is malformed. |
+| `invalid_solution` | `bool` | `True` if `verified` is not `true` in the payload or in the signed verification data. |
+| `time` | `float` | Time taken for verification in milliseconds. |
+| `verification_data` | `dict \| None` | The signed verification data, parsed with `parse_verification_data`; `None` unless `verified`. |
+
+`parse_verification_data(data)` turns the URL-encoded verification data into a flat dict:
+
+- Keys stay as signed, e.g. `data["challenge.algorithm"]` and `data["device.edk"]`
+  (`verify_server` returns these nested instead).
+- `'true'`/`'false'` become `bool`, all-digit values `int` (including e.g. a
+  `params.zip` of `01234`, which becomes `1234`), and `digits.digits` values `float`.
+- `fields` and `reasons` become lists.
+- Keys with empty values are left out.
+
+Unlike Sentinel v2's `/v2/verify/signature` (via `verify_server`), local verification does
+not prevent reuse: a valid payload verifies again until `expire`. Reject repeated `id`s
+yourself if that matters.
+
+#### `verify_server(payload, url, secret, *, api_key, headers, timeout, retries, retry_delay, retry_backoff, http_post) → VerifyServerResult`
+
+Verifies a payload remotely via the ALTCHA Sentinel verify signature API, instead of
 checking the HMAC signature locally. Avoids managing the HMAC secret on your server, at the
-cost of a network round-trip.
+cost of a network round-trip. Both Sentinel v2 (`POST /v2/verify/signature`) and Sentinel v1
+(`POST /v1/verify/signature`) are supported; they differ in how the request is authenticated.
+
+##### Sentinel v2
+
+```python
+from altcha import verify_server
+
+result = verify_server(
+    payload,  # the payload received from POST /v2/verify
+    url="https://sentinel.example.com/v2/verify/signature",
+    api_key=SENTINEL_API_KEY,  # id of a restricted or full API key (key_...)
+    secret=SENTINEL_API_KEY_SECRET,  # its secret (sec_...)
+    timeout=10,
+    retries=2,
+)
+
+if result.verified:
+    ...
+```
+
+- `api_key` and `secret` are the ID and secret of a `restricted` or `full` API key of the
+  account that owns the payload's (public) API key. They are sent as
+  `Authorization: Basic base64(api_key:secret)`; an `Authorization` header in `headers` is
+  replaced. `api_key` without `secret` raises `ValueError` before any request is sent.
+- The request body is `{"payload": ...}`; `secret` is not sent in the body (Sentinel v2
+  rejects it).
+- Without credentials, Sentinel v2 answers `401` and `reason` is `'API_KEY_REQUIRED'`. A
+  payload signed by a key of another account gets `reason='API_KEY_NOT_ALLOWED'`.
+- `verification_data` is the signed verification data as a nested dict, with keys split on
+  `.`: `result.verification_data["challenge"]["algorithm"]` (v1's `challengeAlgorithm`),
+  `result.verification_data["device"]["edk"]`. `fields` and `reasons` are lists; `id`,
+  `fieldsHash`, `device.edk` and `params.*` stay strings.
+
+##### Sentinel v1
 
 ```python
 from altcha import verify_server
@@ -258,11 +340,20 @@ if result.verified:
     ...
 ```
 
+- `/v1/verify/signature` takes no credentials: omit `api_key`. `secret` (the payload's API
+  key secret) is optional and sent in the body as `{"payload": ..., "secret": ...}`; Sentinel
+  answers `reason='WRONG_API_KEY_SECRET'` when it is not the payload key's secret.
+- This also applies to the `/v1/verify/signature` alias Sentinel v2 serves with
+  `[server] v1_compat = true`.
+
+##### Parameters
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `payload` | `str` \| `ServerSignaturePayload` \| `dict` | — | The payload to verify. |
-| `url` | `str` | — | Full URL of the Sentinel `/v1/verify/signature` endpoint. |
-| `secret` | `str` | `None` | API key secret, checked against the payload's API key. |
+| `url` | `str` | — | Full URL of the Sentinel endpoint: `/v2/verify/signature` (v2) or `/v1/verify/signature` (v1). |
+| `secret` | `str` | `None` | v2: secret of `api_key`, required with it. v1: API key secret sent in the body and checked against the payload's API key. |
+| `api_key` | `str` | `None` | v2 only: ID of a `restricted` or `full` API key, sent with `secret` as HTTP Basic credentials. |
 | `headers` | `dict` | `None` | Additional headers to send with the request. |
 | `timeout` | `float` | `10` | Per-attempt request timeout in seconds. |
 | `retries` | `int` | `0` | Number of retry attempts after the first try. |
@@ -270,14 +361,22 @@ if result.verified:
 | `retry_backoff` | `str` | `'exponential'` | `'fixed'` or `'exponential'` backoff. |
 | `http_post` | callable | stdlib `urllib` | Transport override: `(url, body, headers, timeout) -> (status, body)`. |
 
+##### Errors and retries
+
+Failures never raise; they return `verified=False` with a `reason`. `4xx` responses (bad
+payload, missing or wrong credentials, rate limit) are definitive and returned at once.
+Network errors, other error statuses (e.g. `5xx`) and invalid response bodies are retried up
+to `retries` times. For an error response, `reason` is the `code` of Sentinel's error body
+(v2: `{"code", "error", "statusCode"}`), else its `error` (v1), else `'HTTP_<status>'`.
+
 Returns `VerifyServerResult` with fields:
 
 | Field | Type | Description |
 |---|---|---|
 | `verified` | `bool` | `True` if Sentinel confirmed the payload is valid. |
-| `reason` | `str \| None` | Failure reason, if any. |
+| `reason` | `str \| None` | Why verification failed: Sentinel's `reason` (e.g. `'PAYLOAD_ALREADY_USED'`, `'INVALID_PAYLOAD'`, `'API_KEY_NOT_ALLOWED'` (v2), `'WRONG_API_KEY_SECRET'` (v1)), the error code of an HTTP error response, `'INVALID_RESPONSE'`, or a network error message. |
 | `api_key` | `str \| None` | The API key associated with the payload, if returned. |
-| `verification_data` | `dict \| None` | Parsed verification data, if returned. |
+| `verification_data` | `dict \| None` | Verification data returned by Sentinel (nested dict), if returned. |
 
 ---
 
@@ -299,6 +398,12 @@ Creates a new v1 challenge.
 | `number` | `int` | auto | Optional number. Random if omitted. |
 | `expires` | `datetime` | `None` | Optional expiration time. |
 | `params` | `dict` | `None` | Optional URL-encoded query parameters appended to the salt. |
+
+#### `verify_server_signature_v1(payload, hmac_key) → (bool, ServerSignatureVerificationData | None, str | None)`
+
+Verifies a server signature with the v1 API. Returns `(verified, data, error)`, where `data`
+exposes the known fields (`classification`, `expire`, `fields`, `fieldsHash`, `score`, …)
+as attributes. Prefer `verify_server_signature`.
 
 #### `verify_solution_v1(payload, hmac_secret, check_expires) → (bool, str | None)`
 

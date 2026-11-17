@@ -882,6 +882,7 @@ class TestVerifyServerSignature(unittest.TestCase):
 
 class TestVerifyServer(unittest.TestCase):
     URL = "https://sentinel.example.com/v1/verify/signature"
+    URL_V2 = "https://sentinel.example.com/v2/verify/signature"
 
     def setUp(self):
         self._sleep_calls: list[float] = []
@@ -914,13 +915,105 @@ class TestVerifyServer(unittest.TestCase):
         calls = []
 
         def post(url, data, headers, timeout):
-            calls.append(data)
+            calls.append((data, headers))
             return 200, json.dumps({"verified": True}).encode()
 
         verify_server("payload", self.URL, secret="sec_123", http_post=post)
         self.assertEqual(
-            json.loads(calls[0]), {"payload": "payload", "secret": "sec_123"}
+            json.loads(calls[0][0]), {"payload": "payload", "secret": "sec_123"}
         )
+        self.assertNotIn("Authorization", calls[0][1])
+
+    def test_v2_api_key_sent_as_basic_auth_without_body_secret(self):
+        calls = []
+
+        def post(url, data, headers, timeout):
+            calls.append((url, data, headers))
+            return 200, json.dumps({"verified": True}).encode()
+
+        verify_server(
+            "payload",
+            self.URL_V2,
+            secret="sec_123",
+            api_key="key_restricted",
+            headers={"authorization": "Bearer other", "X-Extra": "1"},
+            http_post=post,
+        )
+        url, data, headers = calls[0]
+        self.assertEqual(url, self.URL_V2)
+        self.assertEqual(json.loads(data), {"payload": "payload"})
+        self.assertEqual(
+            headers,
+            {
+                "Content-Type": "application/json",
+                "X-Extra": "1",
+                "Authorization": "Basic "
+                + base64.b64encode(b"key_restricted:sec_123").decode(),
+            },
+        )
+
+    def test_v2_api_key_without_secret_raises(self):
+        def post(url, data, headers, timeout):
+            raise AssertionError("no request expected")
+
+        for secret in (None, ""):
+            with self.subTest(secret=secret), self.assertRaises(ValueError):
+                verify_server(
+                    "payload",
+                    self.URL_V2,
+                    secret=secret,
+                    api_key="key_restricted",
+                    http_post=post,
+                )
+
+    def test_4xx_is_terminal_with_error_code(self):
+        for status in (400, 401, 403, 429):
+            calls = []
+
+            def post(url, data, headers, timeout, status=status, calls=calls):
+                calls.append(1)
+                body = {"code": "API_KEY_REQUIRED", "error": "API key required."}
+                return status, json.dumps({**body, "statusCode": status}).encode()
+
+            with self.subTest(status=status):
+                result = verify_server(
+                    "payload", self.URL_V2, retries=3, http_post=post
+                )
+                self.assertFalse(result.verified)
+                self.assertEqual(result.reason, "API_KEY_REQUIRED")
+                self.assertEqual(len(calls), 1)
+
+    def test_5xx_retried_then_fails_with_error_code(self):
+        calls = []
+
+        def post(url, data, headers, timeout):
+            calls.append(1)
+            return 503, json.dumps({"code": "UNAVAILABLE", "error": "x"}).encode()
+
+        result = verify_server("payload", self.URL_V2, retries=2, http_post=post)
+        self.assertFalse(result.verified)
+        self.assertEqual(result.reason, "UNAVAILABLE")
+        self.assertEqual(len(calls), 3)
+
+    def test_error_without_json_body_reports_status(self):
+        def post(url, data, headers, timeout):
+            return 502, b"Bad Gateway"
+
+        result = verify_server("payload", self.URL_V2, http_post=post)
+        self.assertFalse(result.verified)
+        self.assertEqual(result.reason, "HTTP_502")
+
+    def test_invalid_success_body_retried(self):
+        responses = [b"<html>", b"[]", json.dumps({"verified": True}).encode()]
+
+        def post(url, data, headers, timeout):
+            return 200, responses.pop(0)
+
+        result = verify_server("payload", self.URL_V2, retries=1, http_post=post)
+        self.assertFalse(result.verified)
+        self.assertEqual(result.reason, "INVALID_RESPONSE")
+        result = verify_server("payload", self.URL_V2, http_post=post)
+        self.assertTrue(result.verified)
 
     def test_secret_omitted_when_not_given(self):
         calls = []
@@ -975,6 +1068,8 @@ class TestVerifyServer(unittest.TestCase):
             signature="sig",
             verification_data="verified=true",
             verified=True,
+            api_key="key_1",
+            id="543713f0",
         )
         calls = []
 
@@ -991,7 +1086,12 @@ class TestVerifyServer(unittest.TestCase):
                 "signature": "sig",
                 "verificationData": "verified=true",
                 "verified": True,
+                "apiKey": "key_1",
+                "id": "543713f0",
             },
+        )
+        self.assertEqual(
+            ServerSignaturePayload.from_dict(sent["payload"]).api_key, "key_1"
         )
 
     def test_fixed_backoff(self):

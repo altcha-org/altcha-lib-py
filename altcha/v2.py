@@ -895,6 +895,9 @@ class ServerSignaturePayload:
         signature: HMAC signature of the hashed verification data.
         verification_data: URL-encoded query string of verification attributes.
         verified: Whether the server marked the payload as verified.
+        api_key: ID of the API key that signed the payload (Sentinel's ``apiKey``),
+            if present. Not covered by the signature.
+        id: Payload ID (Sentinel's ``id``), if present. Not covered by the signature.
     """
 
     def __init__(
@@ -903,19 +906,28 @@ class ServerSignaturePayload:
         signature: str,
         verification_data: str,
         verified: bool,
+        api_key: str | None = None,
+        id: str | None = None,
     ):
         self.algorithm = algorithm
         self.signature = signature
         self.verification_data = verification_data
         self.verified = verified
+        self.api_key = api_key
+        self.id = id
 
     def to_dict(self) -> dict:
-        return {
+        d: dict = {
             "algorithm": self.algorithm,
             "signature": self.signature,
             "verificationData": self.verification_data,
             "verified": self.verified,
         }
+        if self.api_key is not None:
+            d["apiKey"] = self.api_key
+        if self.id is not None:
+            d["id"] = self.id
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> ServerSignaturePayload:
@@ -924,6 +936,8 @@ class ServerSignaturePayload:
             signature=d["signature"],
             verification_data=d["verificationData"],
             verified=bool(d.get("verified", False)),
+            api_key=d.get("apiKey"),
+            id=d.get("id"),
         )
 
     @classmethod
@@ -1106,9 +1120,14 @@ class VerifyServerResult:
 
     Attributes:
         verified: ``True`` if Sentinel confirmed the payload is valid.
-        reason: Failure reason (e.g. an error code or exception message), if any.
+        reason: Why verification failed, if it did: Sentinel's ``reason`` (e.g.
+            ``'PAYLOAD_ALREADY_USED'``, ``'INVALID_PAYLOAD'``, ``'API_KEY_NOT_ALLOWED'``
+            (v2) or ``'WRONG_API_KEY_SECRET'`` (v1)), the ``code`` (else ``error``) of an
+            HTTP error response (e.g. ``'API_KEY_REQUIRED'``), ``'HTTP_<status>'``,
+            ``'INVALID_RESPONSE'`` or a network error message.
         api_key: The API key associated with the payload, if returned.
-        verification_data: Parsed verification data, if returned.
+        verification_data: The verification data returned by Sentinel, as a nested
+            dict (``{'challenge': {'algorithm': ...}}``), if returned.
     """
 
     def __init__(
@@ -1150,11 +1169,34 @@ def _sleep_backoff(attempt: int, delay: float, backoff: str) -> None:
     time.sleep(wait)
 
 
+def _decode_json(body: bytes) -> object:
+    """Decode a JSON response body, or return ``None`` if it is not valid JSON."""
+    try:
+        return json.loads(body.decode())
+    except (ValueError, RecursionError):
+        return None
+
+
+def _error_reason(status: int, body: bytes) -> str:
+    """
+    The ``code`` of a Sentinel error body (v2: ``{code, error, statusCode}``), else its
+    ``error`` (v1 sends only ``error``), else ``'HTTP_<status>'``.
+    """
+    data = _decode_json(body)
+    if isinstance(data, dict):
+        for key in ("code", "error"):
+            value = data.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return f"HTTP_{status}"
+
+
 def verify_server(
     payload: str | ServerSignaturePayload | dict,
     url: str,
     secret: str | None = None,
     *,
+    api_key: str | None = None,
     headers: dict[str, str] | None = None,
     timeout: float = 10.0,
     retries: int = 0,
@@ -1164,20 +1206,39 @@ def verify_server(
     | None = None,
 ) -> VerifyServerResult:
     """
-    Verify a payload remotely via the ALTCHA Sentinel ``/v1/verify/signature`` API.
+    Verify a payload remotely via the ALTCHA Sentinel verify signature API.
 
     Instead of verifying the HMAC signature locally (see :func:`verify_server_signature`),
     this POSTs the payload to Sentinel and trusts its response. Avoids managing the HMAC
     secret on your server, at the cost of a network round-trip.
 
+    Supports both Sentinel versions; they differ in how the request is authenticated:
+
+    - Sentinel v2 (``/v2/verify/signature``): pass *api_key* and *secret*, the ID and
+      secret of a ``restricted`` or ``full`` API key of the account that owns the
+      payload's API key. They are sent as HTTP Basic credentials, and nothing else
+      besides the payload is sent in the body.
+    - Sentinel v1 (``/v1/verify/signature``, also the ``/v1`` alias Sentinel v2 serves
+      with ``v1_compat``): omit *api_key*. *secret* is optional and sent in the body;
+      Sentinel checks it against the payload's API key.
+
     Args:
-        payload: The payload to verify, as received from ``POST /v1/verify`` — a base64
-            string, a :class:`ServerSignaturePayload`, or an already-decoded dict.
-        url: Full URL of the Sentinel ``/v1/verify/signature`` endpoint.
-        secret: API key secret. If given, Sentinel checks it against the payload's API key.
-        headers: Additional headers to send with the request.
+        payload: The payload to verify, as received from ``POST /v2/verify`` (or
+            ``/v1/verify``) — a base64 string, a :class:`ServerSignaturePayload`, or an
+            already-decoded dict.
+        url: Full URL of the Sentinel ``/v2/verify/signature`` or
+            ``/v1/verify/signature`` endpoint.
+        secret: API key secret. With *api_key* (Sentinel v2), the secret of that key,
+            sent as the Basic password; required. Without *api_key* (Sentinel v1),
+            optional and sent as ``secret`` in the body.
+        api_key: Sentinel v2: ID (``key_…``) of a ``restricted`` or ``full`` API key,
+            sent with *secret* as ``Authorization: Basic base64(api_key:secret)``.
+        headers: Additional headers to send with the request. An ``Authorization``
+            header is replaced when *api_key* is set.
         timeout: Per-attempt request timeout in seconds. Defaults to ``10``.
-        retries: Number of retry attempts after the first try. Defaults to ``0``.
+        retries: Number of retry attempts after the first try. Network errors, non-4xx
+            error statuses and invalid response bodies are retried; 4xx responses are
+            not. Defaults to ``0``.
         retry_delay: Base delay in seconds between retries. Defaults to ``0.3``.
         retry_backoff: ``'fixed'`` or ``'exponential'`` backoff applied to *retry_delay*.
         http_post: Transport override — ``(url, body, headers, timeout) -> (status, body)``.
@@ -1188,18 +1249,31 @@ def verify_server(
         A :class:`VerifyServerResult` describing the outcome. Failures (HTTP errors, network
         errors, or a negative Sentinel verdict) are reported via ``verified=False`` with a
         ``reason``, never raised as exceptions.
+
+    Raises:
+        ValueError: If *api_key* is set without *secret*.
     """
+    if api_key and not secret:
+        raise ValueError("secret is required when api_key is set")
+
     if isinstance(payload, ServerSignaturePayload):
         payload_value: str | dict = payload.to_dict()
     else:
         payload_value = payload
 
     body: dict = {"payload": payload_value}
-    if secret is not None:
+    # Sentinel v2 rejects `secret` in the body (400); only Sentinel v1 reads it.
+    if not api_key and secret is not None:
         body["secret"] = secret
     data = json.dumps(body).encode()
 
     req_headers = {"Content-Type": "application/json", **(headers or {})}
+    if api_key:
+        credentials = base64.b64encode(f"{api_key}:{secret}".encode()).decode()
+        req_headers = {
+            k: v for k, v in req_headers.items() if k.lower() != "authorization"
+        }
+        req_headers["Authorization"] = f"Basic {credentials}"
     post = http_post or _default_http_post
 
     attempts = retries + 1
@@ -1207,27 +1281,22 @@ def verify_server(
         try:
             status, resp_body = post(url, data, req_headers, timeout)
         except Exception as e:  # noqa: BLE001 -- custom transports may raise anything
-            if attempt >= attempts - 1:
-                return VerifyServerResult(
-                    verified=False, reason=str(e) or type(e).__name__
-                )
-            _sleep_backoff(attempt, retry_delay, retry_backoff)
-            continue
+            reason = str(e) or type(e).__name__
+        else:
+            if 200 <= status < 300:
+                resp_data = _decode_json(resp_body)
+                if isinstance(resp_data, dict):
+                    return VerifyServerResult.from_dict(resp_data)
+                reason = "INVALID_RESPONSE"
+            else:
+                reason = _error_reason(status, resp_body)
+                # A 4xx (bad payload, missing or wrong credentials, rate limit) fails
+                # the same way again.
+                if 400 <= status < 500:
+                    return VerifyServerResult(verified=False, reason=reason)
 
-        if status == 400:
-            try:
-                err_data = json.loads(resp_body.decode())
-            except ValueError:
-                err_data = None
-            reason = (err_data or {}).get("error") or f"HTTP_{status}"
+        if attempt >= attempts - 1:
             return VerifyServerResult(verified=False, reason=reason)
-
-        if not (200 <= status < 300):
-            if attempt >= attempts - 1:
-                return VerifyServerResult(verified=False, reason=f"HTTP_{status}")
-            _sleep_backoff(attempt, retry_delay, retry_backoff)
-            continue
-
-        return VerifyServerResult.from_dict(json.loads(resp_body.decode()))
+        _sleep_backoff(attempt, retry_delay, retry_backoff)
 
     return VerifyServerResult(verified=False, reason="NETWORK_ERROR")
