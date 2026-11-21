@@ -11,6 +11,7 @@ from altcha.altcha import (
     ChallengeOptions,
     Payload,
     create_challenge,
+    extract_params,
     hash_algorithm,
     hash_hex,
     hmac_hex,
@@ -316,6 +317,64 @@ class TestALTCHA(unittest.TestCase):
         )
         result, _ = verify_solution(payload, self.hmac_key, check_expires=False)
         self.assertFalse(result)
+
+    def _salt_tail_in_number(self, challenge, number: int, cut_at: str) -> dict:
+        # Moves the tail of the signed salt, starting at "&<cut_at>", into a str
+        # number; the verifier re-adds the "&" so the hashed bytes are unchanged.
+        body = challenge.salt[:-1]
+        cut = body.index(f"&{cut_at}=")
+        return {
+            "algorithm": challenge.algorithm,
+            "challenge": challenge.challenge,
+            "number": f"{body[cut + 1 :]}&{number}",
+            "salt": body[:cut],
+            "signature": challenge.signature,
+        }
+
+    def test_verify_solution_expires_moved_into_number_rejected(self):
+        challenge = create_challenge(
+            ChallengeOptions(
+                hmac_key=self.hmac_key,
+                salt="abcd?x=1",
+                expires=datetime.datetime.now(datetime.timezone.utc)
+                - datetime.timedelta(minutes=5),
+                params={"user": "alice"},
+                number=4242,
+            )
+        )
+        payload = self._salt_tail_in_number(challenge, 4242, "expires")
+        self.assertNotIn("expires", extract_params(payload))
+        self.assertEqual(
+            verify_solution(payload, self.hmac_key), (False, "Invalid number")
+        )
+        payload_encoded = base64.b64encode(json.dumps(payload).encode()).decode()
+        self.assertEqual(
+            verify_solution(payload_encoded, self.hmac_key),
+            (False, "Invalid number"),
+        )
+
+    def test_verify_solution_params_moved_into_number_rejected(self):
+        challenge = create_challenge(
+            ChallengeOptions(
+                hmac_key=self.hmac_key,
+                expires=datetime.datetime.now(datetime.timezone.utc)
+                + datetime.timedelta(minutes=5),
+                params={"user": "alice", "scope": "admin-only"},
+                number=7,
+            )
+        )
+        payload = self._salt_tail_in_number(challenge, 7, "user")
+        self.assertEqual(list(extract_params(payload)), ["expires"])
+        self.assertEqual(
+            verify_solution(payload, self.hmac_key), (False, "Invalid number")
+        )
+
+    def test_create_challenge_rejects_non_int_number(self):
+        for number in ("expires=1&4242", True, 1.0):
+            with self.subTest(number=number), self.assertRaises(TypeError):
+                create_challenge(
+                    ChallengeOptions(hmac_key=self.hmac_key, number=number)  # type: ignore[arg-type]
+                )
 
     def test_valid_signature(self):
         expire_time = int(time.time()) + 600  # 10 minutes from now

@@ -460,6 +460,11 @@ def create_challenge(
         if options.number is not None
         else secrets.randbelow(max_number + 1)
     )
+    # A non-integer number (e.g. a str containing "&") could carry part of the
+    # signed salt, moving the salt/number boundary past the delimiter. bool is
+    # an int subclass, so require the exact type.
+    if type(number) is not int:
+        raise TypeError(f"number must be an int, got {type(number).__name__}")
 
     salt_params = {}
     if "?" in salt:
@@ -553,6 +558,10 @@ def verify_solution(
 
     if p["algorithm"] not in ["SHA-1", "SHA-256", "SHA-512"]:
         return False, "Invalid algorithm"
+
+    # Reject before hashing; see create_challenge.
+    if type(p["number"]) is not int:
+        return False, "Invalid number"
 
     expires = extract_params(payload_dict).get("expires")
     try:
