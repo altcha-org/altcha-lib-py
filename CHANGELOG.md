@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.5.0] - 2026-11-21
+
+### Security
+
+- `v1.verify_solution` returns `(False, "Invalid number")` when `number` is not an
+  `int` (`bool` included). Before, a `str` number could carry the tail of the signed salt
+  across the `&` delimiter: the challenge and signature still matched, but the expiry
+  check and `extract_params` only saw the shortened salt. This hid trailing signed params,
+  and let an expired challenge verify when `expires` was not the first salt param (e.g.
+  a `salt` option that already carries a query string). `v1.create_challenge` raises
+  `TypeError` for a non-`int` `number`.
+
 ## [2.4.0] - 2026-11-17
 
 ### Added
